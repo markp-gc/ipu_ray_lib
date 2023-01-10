@@ -1,10 +1,21 @@
 # Ray-Tracing on Graphcore IPUs
 
+This project is a redesign of an experimental ray/path-tracer for IPU (old version is [here](https://github.com/markp-gc/ipu_path_trace)). This new version is completely re-architected with the aim of making it more flexible and easier to extend. There has also been some attempt at making it interoperable with Embree (which is used to build an initial bounding volume hierachy).
+
 ![Example output image](images/example.png "Images path traced on IPU.")
 
-This is version 2 of an experimental ray-tracer/path-tracer for IPU (old version is [here](https://github.com/markp-gc/ipu_path_trace)). This new version is completely re-architected.
+## Try it immediately in a free notebook
 
-Key improvements over the original are:
+The simplest way to experiment with the renderer is by launching a pre-built docker container on a cloud service.
+Paperspace, for example, provides free IPU-POD4 machines. Click this link and follow the instructions in the README.ipynb notebook:
+
+[<img src="https://assets.paperspace.io/img/gradient-badge.svg" width="200"/>](https://console.paperspace.com/github/markp-gc/gradient_poplar_raytracer?container=mpupilli/poplar_paperspace&machine=Free-IPU-POD4&file=README.ipynb)
+
+(Using this method you do not have to worry about installing the right apt packages or configuring the IPU-POD.)
+
+## New Software Architecture
+
+Key improvements of this implementation over the original are:
 
 - Triangle meshes are now supported.
 - An in SRAM acceleration structure is now supported:
@@ -29,17 +40,9 @@ Note: some fancy features of the old version have not been ported to the new ver
 - Neural rendering (neural HDRI lighting) not yet implemented.
 - Remote-user interface with live preview not yet supported.
 
-## Try it immediately in a free notebook
-
-This code has been tested on IPU PODs running Ubuntu 20 and Poplar SDK version 3.1. It depends on a number of apt packages therefore the
-simplest way to try it out is launching a pre-built docker container on a cloud service. Paperspace, for example, provides free IPU-POD4
-machines. Click this link and follow the instructions in the README.ipynb notebook:
-
-[![Gradient](https://assets.paperspace.io/img/gradient-badge.svg)](https://console.paperspace.com/github/markp-gc/gradient_poplar_raytracer?container=mpupilli/poplar_paperspace&machine=Free-IPU-POD4&file=README.ipynb)
-
 ## Setting up your own machine:
 
-If you would prefer an alternative to [Paperspace](https://www.paperspace.com/graphcore) You can use this [Dockerfile](https://github.com/markp-gc/docker-files/blob/main/graphcore/poplar_dev/Dockerfile) on a cloud service of your choice or even manually install the apt dependencies listed in it on your own system. In this case you will need to follow instructions for your cloud/system to set it up yourself.
+If you would prefer an alternative to Paperspace you can use this [Dockerfile](https://github.com/markp-gc/docker-files/blob/main/graphcore/poplar_dev/Dockerfile) on a cloud service of your choice or even manually install the apt dependencies listed in it on your own system. In either case you will need to follow instructions for your cloud/system to set it up yourself. (You will need to install the Poplar SDK and setup your machine so you can see at least 4 IPUs if this has not been configured for you.)
 
 Once your system is configured you can now clone and build this repository. The build uses CMake:
 ```
@@ -61,7 +64,7 @@ Currently meshes need to fit on tile, the provided mesh is small enough:
 After about 30 seconds this command will output an EXR image 'out_rgb_ipu.exr' in the build folder.
 If you want to quickly tonemap the HDR output and convert to PNG run this command:
 ```
-pfsin out_rgb_ipu.exr | pfstmo_mai11 | pfsout /notebooks/box.png
+pfsin out_rgb_ipu.exr | pfstmo_mai11 | pfsout tonemapped.png
 ```
 
 If you want to render a CPU reference image remove the option `--ipu-only` but be aware it will
