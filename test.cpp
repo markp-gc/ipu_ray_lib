@@ -499,7 +499,7 @@ void addOptions(boost::program_options::options_description& desc) {
   ("width,w", po::value<std::int32_t>()->default_value(768), "Set rendered image width.")
   ("height,h", po::value<std::int32_t>()->default_value(432), "Set rendered image height.")
   ("crop", po::value<std::string>()->default_value(""),
-   "String describing a window of the image to render. Format is wxh+r+c, "
+   "String describing a window of the image to render. Format is wxh+c+r, "
    "where wxh is the width by height of window and +c+r specifies the column and row offset of the window.")
   ("mesh-file", po::value<std::string>()->default_value(std::string()), "Mesh file to include in render. Format must be supported by libassimp.")
   ("visualise", po::value<std::string>()->default_value("rgb"), "Choose the render output values to test/visualise. One of [rgb, normal, hitpoint, tfar, color, id]")

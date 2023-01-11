@@ -45,9 +45,9 @@ std::size_t IpuScene::calcNumBatches(const poplar::Target& target, std::size_t n
   ipu_utils::logger()->debug("Loop iterations {} (pipeline loop iterations {})", numBatchesPerReplica, numBatchesPerReplica - 2u);
 
   // For overlapped I/O we need a pipeline with 2 stages:
-  if (numBatchesPerReplica < 2 || numBatchesPerReplica % 2) {
+  if (numBatchesPerReplica < 2) {
     throw std::runtime_error("Using for async I/O pipeline: number of batches per replica must be at least 2 "
-                              "and divisible by 2 to fill the pipeline.");
+                              "to fill the pipeline.");
   }
 
   return batchCounter;
@@ -111,7 +111,8 @@ IpuScene::createRayBatches(const poplar::Device& device, std::size_t numComputeT
   }
 
   if (rayBatches.size() < 2) {
-    throw std::runtime_error("Using for async I/O pipeline: number of batches must be at least 2 to fill the pipeline.");
+    throw std::runtime_error("Using for async I/O pipeline: number of batches per replica must be at least 2 "
+                              "to fill the pipeline.");
   }
 
   return rayBatches;
