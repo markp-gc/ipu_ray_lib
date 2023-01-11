@@ -467,12 +467,12 @@ void IpuScene::execute(poplar::Engine& engine, const poplar::Device& device) {
   ipu_utils::logger()->info("Host to DRAM ray bandwidth: {} GB/sec", (1e-9 * rayBatches.size() * maxRaysPerIteration * sizeof(embree_utils::TraceResult) / secs));
 
   // Include initialisation (send BVH to device) in IPU timings:
-  ipu_utils::logger()->info("Rendering started.");
+  ipu_utils::logger()->info("IPU Rendering started.");
   startTime = std::chrono::steady_clock::now();
   getPrograms().run(engine, "trace");
   endTime = std::chrono::steady_clock::now();
   traceTimeSecs = std::chrono::duration<double>(endTime - startTime).count();
-  ipu_utils::logger()->info("Rendering finished.");
+  ipu_utils::logger()->info("IPU Rendering finished.");
 
   // Read rays back to host:
   startTime = std::chrono::steady_clock::now();

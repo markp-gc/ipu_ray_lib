@@ -24,9 +24,12 @@
 #include <vector>
 #include <map>
 #include <random>
+#include <regex>
+#include <optional>
 
 void initPerspectiveRayStream(std::vector<embree_utils::TraceResult>& rayStream,
                               const cv::Mat& image,
+                              const CropWindow& window,
                               xoshiro::Generator* gen = nullptr) {
   constexpr float fov = embree_utils::Piby4;
   const auto rayOrigin = embree_utils::Vec3fa(0, 0, 0);
@@ -34,8 +37,8 @@ void initPerspectiveRayStream(std::vector<embree_utils::TraceResult>& rayStream,
   std::normal_distribution<float> d{0.f, .25f};
 
   auto i = 0u;
-  for (std::uint32_t r = 0u; r < image.rows; ++r) {
-    for (std::uint32_t c = 0u; c < image.cols; ++c) {
+  for (std::uint32_t r = window.r; r < window.r + window.h; ++r) {
+    for (std::uint32_t c = window.c; c < window.c + window.w; ++c) {
       float pu = r;
       float pv = c;
       if (gen) {
@@ -210,8 +213,8 @@ std::vector<RTCBuildPrimitive> makeBuildPrimitivesForEmbree(const SceneData& dat
 }
 
 std::vector<embree_utils::TraceResult> renderEmbree(const SceneRef& data, embree_utils::EmbreeScene& embreeScene, cv::Mat& image) {
-  std::vector<embree_utils::TraceResult> rayStream(image.rows * image.cols);
-  initPerspectiveRayStream(rayStream, image);
+  std::vector<embree_utils::TraceResult> rayStream(data.window.w * data.window.h);
+  initPerspectiveRayStream(rayStream, image, data.window);
   zeroRgb(rayStream);
 
   embreeScene.commitScene();
@@ -226,7 +229,10 @@ std::vector<embree_utils::TraceResult> renderEmbree(const SceneRef& data, embree
   if (((std::size_t)(&hitStream[0].ray)) % 16) {
     throw std::logic_error("First element of ray stream is not 16-byte aligned.");
   }
+
+  ipu_utils::logger()->info("Embree Rendering started.");
   auto startTime = std::chrono::steady_clock::now();
+
   embreeScene.intersect(hitStream, image.rows);
 
   // For Embree we have to save hit records before shadow ray calcs
@@ -265,7 +271,6 @@ std::vector<embree_utils::TraceResult> renderEmbree(const SceneRef& data, embree
     }
   }
   embreeScene.occluded(hitStream, image.rows);
-  auto endTime = std::chrono::steady_clock::now();
 
   // Store shadowing/shading result:
   #pragma omp parallel for schedule(auto)
@@ -286,6 +291,9 @@ std::vector<embree_utils::TraceResult> renderEmbree(const SceneRef& data, embree
     }
     rayStream[i].rgb = color;
   }
+
+  auto endTime = std::chrono::steady_clock::now();
+  ipu_utils::logger()->info("Embree Rendering ended.");
 
   auto secs = std::chrono::duration<double>(endTime - startTime).count();
   auto rayRate = rayStream.size() / secs;
@@ -384,12 +392,9 @@ std::vector<embree_utils::TraceResult> renderCPU(
     );
   }
 
-  std::vector<embree_utils::TraceResult> rayStream(image.rows * image.cols);
-  initPerspectiveRayStream(rayStream, image);
+  std::vector<embree_utils::TraceResult> rayStream(sceneRef.window.w * sceneRef.window.h);
+  initPerspectiveRayStream(rayStream, image, sceneRef.window);
   zeroRgb(rayStream);
-
-  // Time just the intersections with the compact BVH:
-  auto startTime = std::chrono::steady_clock::now();
 
   // Make a CompactBvh object for our custom CPU ray-tracer.
   // A CompactBvh wraps the scene ref BVH nodes:
@@ -400,10 +405,14 @@ std::vector<embree_utils::TraceResult> renderCPU(
     return getPrimitive(geom, scene);
   };
 
+  // Time just the intersections with the compact BVH:
+  auto startTime = std::chrono::steady_clock::now();
+  ipu_utils::logger()->info("CPU Rendering started.");
+
   if (scene.pathTrace) {
     for (auto s = 0u; s < scene.pathTrace->samplesPerPixel; ++s) {
       // Regenerate new camera rays at each sample step:
-      initPerspectiveRayStream(rayStream, image, &scene.pathTrace->sampler);
+      initPerspectiveRayStream(rayStream, image, sceneRef.window, &scene.pathTrace->sampler);
       #pragma omp parallel for schedule(auto)
       for (auto itr = rayStream.begin(); itr != rayStream.end(); ++itr) {
         pathTrace(sceneRef, scene, bvh, *itr, primLookup);
@@ -422,6 +431,7 @@ std::vector<embree_utils::TraceResult> renderCPU(
     }
   }
 
+  ipu_utils::logger()->info("CPU Rendering finished.");
   auto endTime = std::chrono::steady_clock::now();
   auto secs = std::chrono::duration<double>(endTime - startTime).count();
   auto castsPerRay = scene.pathTrace ? scene.pathTrace->samplesPerPixel * scene.pathTrace->maxPathLength : 1;
@@ -439,8 +449,8 @@ std::vector<embree_utils::TraceResult> renderIPU(
   const std::vector<Disc>& discs,
   const boost::program_options::variables_map& args)
 {
-  std::vector<embree_utils::TraceResult> rayStream(image.rows * image.cols);
-  initPerspectiveRayStream(rayStream, image);
+  std::vector<embree_utils::TraceResult> rayStream(sceneRef.window.w * sceneRef.window.h);
+  initPerspectiveRayStream(rayStream, image, sceneRef.window);
   zeroRgb(rayStream);
 
   auto ipus = args["ipus"].as<std::uint32_t>();
@@ -488,6 +498,9 @@ void addOptions(boost::program_options::options_description& desc) {
   ("ipus", po::value<std::uint32_t>()->default_value(4), "Select number of IPUs (each IPU will be a replica).")
   ("width,w", po::value<std::int32_t>()->default_value(768), "Set rendered image width.")
   ("height,h", po::value<std::int32_t>()->default_value(432), "Set rendered image height.")
+  ("crop", po::value<std::string>()->default_value(""),
+   "String describing a window of the image to render. Format is wxh+r+c, "
+   "where wxh is the width by height of window and +c+r specifies the column and row offset of the window.")
   ("mesh-file", po::value<std::string>()->default_value(std::string()), "Mesh file to include in render. Format must be supported by libassimp.")
   ("visualise", po::value<std::string>()->default_value("rgb"), "Choose the render output values to test/visualise. One of [rgb, normal, hitpoint, tfar, color, id]")
   ("ray-epsilon", po::value<float>()->default_value(0.0035f), "Shadow ray min intersect distance (applied for Embree, CPU, and IPU).")
@@ -526,6 +539,29 @@ boost::program_options::variables_map parseOptions(int argc, char** argv, boost:
 
   po::notify(vm);
   return vm;
+}
+
+std::optional<CropWindow> parseCropString(const std::string& cropFmt) {
+  if (cropFmt.empty()) {
+    return {};
+  } else {
+    // Parse the format string:
+    ipu_utils::logger()->debug("Crop format string: {}", cropFmt);
+    std::smatch matches;
+    std::regex_search(cropFmt, matches, std::regex("(\\d+)x(\\d+)\\+(\\d+)\\+(\\d+)"));
+    if (matches.size() != 5) {
+      ipu_utils::logger()->error("Could not parse --crop argument: '{}'", cropFmt);
+      throw std::runtime_error("Badly formatted string used for --crop.");
+    }
+    return std::optional<CropWindow>(
+      CropWindow{
+        std::atoi(matches.str(1).c_str()),
+        std::atoi(matches.str(2).c_str()),
+        std::atoi(matches.str(3).c_str()),
+        std::atoi(matches.str(4).c_str())
+      }
+    );
+  }
 }
 
 int main(int argc, char** argv) {
@@ -624,8 +660,14 @@ int main(int argc, char** argv) {
   const auto visMode = visStrMap.at(visModeStr);
   const auto imageWidth = args["width"].as<std::int32_t>();
   const auto imageHeight = args["height"].as<std::int32_t>();
+  const auto cropFmt = args["crop"].as<std::string>();
   const std::string outPrefix = "out_" + visModeStr + "_";
   scene.shadowRayOffset = args["ray-epsilon"].as<float>();
+
+  // Get cropped window size:
+  auto crop = parseCropString(cropFmt);
+  auto window = crop.value_or(CropWindow{imageWidth, imageHeight, 0, 0}); // (Set window to whole image if crop wasn't specified)
+  ipu_utils::logger()->info("Rendering window: width: {}, height: {}, start col: {}, start row: {}", window.w, window.h, window.c, window.r);
 
   // Test the SceneRef structure:
   SceneRef sceneRef {
@@ -641,6 +683,7 @@ int main(int argc, char** argv) {
     rngSeed,
     (float)imageWidth,
     (float)imageHeight,
+    window,
     args["samples"].as<std::uint32_t>(),
     args["max-path-length"].as<std::uint32_t>(),
     args["roulette-start-depth"].as<std::uint32_t>(),

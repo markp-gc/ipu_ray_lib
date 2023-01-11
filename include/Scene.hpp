@@ -17,6 +17,13 @@ enum class GeomType : uint8_t {
   NumTypes
 };
 
+struct CropWindow {
+  std::int32_t w;
+  std::int32_t h;
+  std::int32_t c;
+  std::int32_t r;
+};
+
 struct GeomRef {
   GeomRef(std::uint16_t i, GeomType t) : index(i), type(t), pad(0) {}
   std::uint16_t index;
@@ -51,6 +58,7 @@ struct SceneRef {
   std::uint64_t rngSeed;
   float imageWidth;
   float imageHeight;
+  CropWindow window;
   std::uint32_t samplesPerPixel;
   std::uint32_t maxPathLength; // Hard limit on number of bounces in path tracing.
   std::uint32_t rouletteStartDepth; // Random stopping enabled at this depth
