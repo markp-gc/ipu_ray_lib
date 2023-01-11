@@ -58,7 +58,7 @@ void importMesh(std::string& filename, std::vector<HostTriangleMesh>& meshes) {
       ipu_utils::logger()->info("Found {} meshes in file '{}'.", scene->mNumMeshes, filename);
       for (auto m = 0u; m < scene->mNumMeshes; ++m) {
         auto& mesh = *scene->mMeshes[m];
-        ipu_utils::logger()->info("Mesh {} has {} faces.", m, mesh.mNumFaces);
+        ipu_utils::logger()->debug("Mesh {} has {} faces.", m, mesh.mNumFaces);
         meshes.push_back(HostTriangleMesh());
         auto& hostMesh = meshes.back();
         for (auto f = 0u; f < mesh.mNumFaces; ++f) {
@@ -73,7 +73,7 @@ void importMesh(std::string& filename, std::vector<HostTriangleMesh>& meshes) {
           hostMesh.vertices.push_back(embree_utils::Vec3fa(vert[0], vert[1], vert[2]));
         }
         hostMesh.updateBoundingBox();
-        ipu_utils::logger()->info("Bounding box for mesh {}: {} {} {} -> {} {} {}", m,
+        ipu_utils::logger()->debug("Bounding box for mesh {}: {} {} {} -> {} {} {}", m,
           hostMesh.getBoundingBox().min.x, hostMesh.getBoundingBox().min.y, hostMesh.getBoundingBox().min.z,
           hostMesh.getBoundingBox().max.x, hostMesh.getBoundingBox().max.y, hostMesh.getBoundingBox().max.z);
         // NOTE: Transform hardcoded for monkey bust mesh:
@@ -87,7 +87,7 @@ void importMesh(std::string& filename, std::vector<HostTriangleMesh>& meshes) {
           v += embree_utils::Vec3fa(210, 165, 160); // Translate to top of box
         });
         hostMesh.updateBoundingBox();
-        ipu_utils::logger()->info("Bounding box for mesh {} after scaling: {} {} {} -> {} {} {}", m,
+        ipu_utils::logger()->debug("Bounding box for mesh {} after scaling: {} {} {} -> {} {} {}", m,
           hostMesh.getBoundingBox().min.x, hostMesh.getBoundingBox().min.y, hostMesh.getBoundingBox().min.z,
           hostMesh.getBoundingBox().max.x, hostMesh.getBoundingBox().max.y, hostMesh.getBoundingBox().max.z);
       }
@@ -250,7 +250,7 @@ SceneDescription makeCornellBoxScene(std::string& meshFile, bool boxOnly) {
     importMesh(meshFile, scene.meshes);
   }
 
-  ipu_utils::logger()->info("Number of triangle meshes in scene: {}", scene.meshes.size());
+  ipu_utils::logger()->debug("Number of triangle meshes in scene: {}", scene.meshes.size());
 
   // Transform scene so camera is at origin and change handedness of coordinate system:
   embree_utils::Vec3fa cameraPosition(278, 273, -800); // From Cornell spec.

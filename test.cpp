@@ -533,7 +533,7 @@ int main(int argc, char** argv) {
   addOptions(desc);
   auto args = parseOptions(argc, argv, desc);
 
-  spdlog::set_level(spdlog::level::debug);
+  spdlog::set_level(spdlog::level::info);
 
   // Create the high level scene description:
   auto meshFile = args["mesh-file"].as<std::string>();
@@ -617,7 +617,7 @@ int main(int argc, char** argv) {
   data.bvhNodes = buildCompactBvh(builder.getRoot(), builder.nodeCount(), maxDepth);
   buildPrimitives.clear(); // Embree is done with this now so free the space
 
-  ipu_utils::logger()->info("Max leaf depth in BVH: {}", maxDepth);
+  ipu_utils::logger()->debug("Max leaf depth in BVH: {}", maxDepth);
 
   // ===== Rendering: ======
   const auto visModeStr = args.at("visualise").as<std::string>();
@@ -656,7 +656,7 @@ int main(int argc, char** argv) {
     auto rayStream = renderCPU(sceneRef, cpuImage, scene);
     auto hitCount = visualiseHits(rayStream, sceneRef, cpuImage, visMode);
     cv::imwrite(outPrefix + "cpu.exr", cpuImage);
-    ipu_utils::logger()->info("CPU reference hit count: {}", hitCount);
+    ipu_utils::logger()->debug("CPU reference hit count: {}", hitCount);
 
     // Now create reference image using embree:
     if (sceneRef.pathTrace) {
@@ -665,7 +665,7 @@ int main(int argc, char** argv) {
       rayStream = renderEmbree(sceneRef, embreeScene, embreeImage);
       hitCount = visualiseHits(rayStream, sceneRef, embreeImage, visMode);
       cv::imwrite(outPrefix + "embree.exr", embreeImage);
-      ipu_utils::logger()->info("Embree hit count: {}", hitCount);
+      ipu_utils::logger()->debug("Embree hit count: {}", hitCount);
     }
   }
 
@@ -674,7 +674,7 @@ int main(int argc, char** argv) {
   auto rayStream = renderIPU(sceneRef, ipuImage, scene.spheres, scene.discs, args);
   auto hitCount = visualiseHits(rayStream, sceneRef, ipuImage, visMode);
   cv::imwrite(outPrefix + "ipu.exr", ipuImage);
-  ipu_utils::logger()->info("IPU hit count: {}", hitCount);
+  ipu_utils::logger()->debug("IPU hit count: {}", hitCount);
 
   if (!ipuOnly) {
     // Compare IPU and CPU outputs:
@@ -690,5 +690,6 @@ int main(int argc, char** argv) {
     ipu_utils::logger()->info("MSE IPU vs Embree result: {}", mse);
   }
 
+  ipu_utils::logger()->info("Done.");
   return EXIT_SUCCESS;
 }

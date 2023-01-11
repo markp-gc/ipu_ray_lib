@@ -40,8 +40,8 @@ std::size_t IpuScene::calcNumBatches(const poplar::Target& target, std::size_t n
 
   std::uint32_t numBatchesPerReplica = batchCounter / numReplicas;
 
-  ipu_utils::logger()->info("Ray batches: {}", numBatches);
-  ipu_utils::logger()->info("Ray batches per replica:: {}", numBatchesPerReplica);
+  ipu_utils::logger()->debug("Ray batches: {}", numBatches);
+  ipu_utils::logger()->debug("Ray batches per replica: {}", numBatchesPerReplica);
   ipu_utils::logger()->debug("Loop iterations {} (pipeline loop iterations {})", numBatchesPerReplica, numBatchesPerReplica - 2u);
 
   // For overlapped I/O we need a pipeline with 2 stages:
