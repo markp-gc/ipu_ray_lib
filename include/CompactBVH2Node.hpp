@@ -50,12 +50,13 @@ bool intersectRaySlab(float componentInvDir, float componentOrigin, float slabMi
 }
 
 struct CompactBVH2Node {
+  using OffsetType = float;
   static constexpr auto InvalidGeomID = std::numeric_limits<std::uint16_t>::max();
   static constexpr auto InvalidPrimID = std::numeric_limits<std::uint32_t>::max();
 
   // Explicitly list the bounds element by element to get a compact structure:
   float min_x, min_y, min_z;
-  float max_x, max_y, max_z;
+  OffsetType dx, dy, dz;
 
   // If this is a leaf we store the primitive IDs, otherwise we store
   // the index of the second child node. (The first child node is always
@@ -70,4 +71,11 @@ struct CompactBVH2Node {
   /// Test if a ray intersects this node's bounding box and update
   /// t0 and t1 to the new possible intersection ranges:
   bool intersect(const embree_utils::Vec3fa& o, const embree_utils::Vec3fa& i, float& t0, float& t1) const;
+
+  embree_utils::Bounds3d toBounds() const {
+    return embree_utils::Bounds3d(
+      embree_utils::Vec3fa(min_x, min_y, min_z),
+      embree_utils::Vec3fa(min_x + dx, min_y + dy, min_z + dz)
+    );
+  }
 };

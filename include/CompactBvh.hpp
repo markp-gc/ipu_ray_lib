@@ -16,11 +16,7 @@
 struct CompactBvh {
 
   embree_utils::Bounds3d getBoundingBox() const {
-    const auto& root = nodes.front();
-    return embree_utils::Bounds3d(
-      embree_utils::Vec3fa(root.min_x, root.min_y, root.min_z),
-      embree_utils::Vec3fa(root.max_x, root.max_y, root.max_z)
-    );
+    return nodes.front().toBounds();
   }
 
   ConstArrayRef<CompactBVH2Node> getNodes() const { return nodes; }
