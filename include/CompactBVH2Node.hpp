@@ -55,16 +55,16 @@ struct CompactBVH2Node {
 
   // Explicitly list the bounds element by element to get a compact structure:
   float min_x, min_y, min_z;
+  float max_x, max_y, max_z;
 
   // If this is a leaf we store the primitive IDs, otherwise we store
   // the index of the second child node. (The first child node is always
   // the next node in the array).
   union {
-    std::uint32_t primID;
-    std::uint32_t secondChildIndex;
+    std::uint16_t primID;
+    std::uint16_t secondChildIndex;
   };
 
-  float max_x, max_y, max_z;
   std::uint16_t geomID; // If this == InvalidGeomID then the node is an inner node.
 
   /// Test if a ray intersects this node's bounding box and update
