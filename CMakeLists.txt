@@ -11,6 +11,7 @@ find_package(OpenCV REQUIRED)
 find_package(OpenMP REQUIRED)
 #find_package(embree 3.0 REQUIRED)
 find_package(assimp 5 REQUIRED)
+find_package(Eigen3 REQUIRED NO_MODULE)
 
 execute_process(COMMAND bash "-c" "popc --version | cut -d ' ' -f3 | head -1" OUTPUT_VARIABLE POPLAR_VERSION)
 string(REPLACE "." ";" VERSION_LIST ${POPLAR_VERSION})
@@ -23,6 +24,7 @@ include_directories(
   ${Boost_INCLUDE_DIRS}
   ${OpenCV_INCLUDE_DIRS}
   ${ASSIMP_INCLUDE_DIRS}
+  ${EIGEN3_INCLUDE_DIR}
   ${CMAKE_SOURCE_DIR}/ext
 )
 
@@ -45,6 +47,7 @@ target_link_libraries(test
   ${OpenCV_LIBS}
   ${ASSIMP_LIBRARIES}
   OpenMP::OpenMP_CXX
+  Eigen3::Eigen
   -lpoplar -lpopops -lpoputil -lpoprand -lgcl -lpvti)
 
 # Explicitly define the subset of the library source files needed to build IPU codelet:

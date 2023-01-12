@@ -50,21 +50,23 @@ bool intersectRaySlab(float componentInvDir, float componentOrigin, float slabMi
 }
 
 struct CompactBVH2Node {
-  using OffsetType = float;
   static constexpr auto InvalidGeomID = std::numeric_limits<std::uint16_t>::max();
   static constexpr auto InvalidPrimID = std::numeric_limits<std::uint32_t>::max();
 
   // Explicitly list the bounds element by element to get a compact structure:
   float min_x, min_y, min_z;
-  OffsetType dx, dy, dz;
 
   // If this is a leaf we store the primitive IDs, otherwise we store
   // the index of the second child node. (The first child node is always
   // the next node in the array).
   union {
-    std::uint16_t primID;
-    std::uint16_t secondChildIndex;
+    std::uint32_t primID;
+    std::uint32_t secondChildIndex;
   };
+
+  // Store width, height, and depth of bounding box at half precision.
+  // This saves 25% BVH node memory on device:
+  half dx, dy, dz;
 
   std::uint16_t geomID; // If this == InvalidGeomID then the node is an inner node.
 
@@ -75,7 +77,7 @@ struct CompactBVH2Node {
   embree_utils::Bounds3d toBounds() const {
     return embree_utils::Bounds3d(
       embree_utils::Vec3fa(min_x, min_y, min_z),
-      embree_utils::Vec3fa(min_x + dx, min_y + dy, min_z + dz)
+      embree_utils::Vec3fa(min_x + (float)dx, min_y + (float)dy, min_z + (float)dz)
     );
   }
 };

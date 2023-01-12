@@ -7,6 +7,14 @@
 
 #include <cstdint>
 #include <limits>
+#include <memory>
+
+#ifdef __IPU__
+#include <poplar/HalfFloat.hpp>
+#else
+#include <Eigen/Dense>
+using half = Eigen::half;
+#endif
 
 static constexpr float machineEpsilon = std::numeric_limits<float>::epsilon() * .5f;
 
@@ -15,3 +23,23 @@ static constexpr float gamma(int i) {
   return ni / (1 - ni);
 }
 
+inline
+half nextHalfUp(half h) {
+  static_assert(sizeof(std::uint16_t) == sizeof(half), "Eigen half badly sized.");
+  std::uint16_t bits;
+  std::memcpy(&bits, &h, sizeof(bits));
+  bits += 1;
+  half result;
+  std::memcpy(&result, &bits, sizeof(bits));
+  return result;
+}
+
+inline
+half roundToHalfNotSmaller(float f) {
+  half h = (half)f;
+  float ff = (float)h;
+  if (ff < f) {
+    h = nextHalfUp(h);
+  }
+  return h;
+}

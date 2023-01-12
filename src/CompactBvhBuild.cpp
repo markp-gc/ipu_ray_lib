@@ -8,9 +8,18 @@ CompactBVH2Node toCompactNode(const T& node) {
   compactNode.min_x = node.bounds.min.x;
   compactNode.min_y = node.bounds.min.y;
   compactNode.min_z = node.bounds.min.z;
-  compactNode.dx = CompactBVH2Node::OffsetType(node.bounds.max.x - node.bounds.min.x);
-  compactNode.dy = CompactBVH2Node::OffsetType(node.bounds.max.y - node.bounds.min.y);
-  compactNode.dz = CompactBVH2Node::OffsetType(node.bounds.max.z - node.bounds.min.z);
+
+  float dx = node.bounds.max.x - node.bounds.min.x;
+  float dy = node.bounds.max.y - node.bounds.min.y;
+  float dz = node.bounds.max.z - node.bounds.min.z;
+  constexpr float maxHalf = 65504.f;
+  if (dx > maxHalf || dy > maxHalf || dz > maxHalf) {
+    throw std::runtime_error("Cannot compress BVH bounds into fp16 (half)");
+  }
+
+  compactNode.dx = roundToHalfNotSmaller(dx);
+  compactNode.dy = roundToHalfNotSmaller(dy);
+  compactNode.dz = roundToHalfNotSmaller(dz);
 
   if constexpr (std::is_same_v<embree_utils::LeafNode, T>) {
     compactNode.geomID = node.geomID;
