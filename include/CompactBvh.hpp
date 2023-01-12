@@ -9,7 +9,7 @@
 #pragma once
 
 #include "embree_utils/geometry.hpp"
-#include "Node.hpp"
+#include "CompactBVH2Node.hpp"
 #include "Intersection.hpp"
 #include "Arrays.hpp"
 

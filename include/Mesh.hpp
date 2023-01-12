@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include "Node.hpp"
+#include "CompactBVH2Node.hpp"
 #include "Primitives.hpp"
 #include "Arrays.hpp"
 

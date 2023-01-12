@@ -50,7 +50,7 @@ target_link_libraries(test
 # Explicitly define the subset of the library source files needed to build IPU codelet:
 set(CODELET_SRC
   ${CMAKE_SOURCE_DIR}/src/Mesh.cpp
-  ${CMAKE_SOURCE_DIR}/src/Node.cpp
+  ${CMAKE_SOURCE_DIR}/src/CompactBVH2Node.cpp
   ${CMAKE_SOURCE_DIR}/src/Primitives.cpp
   ${CMAKE_SOURCE_DIR}/codelets/TraceCodelets.cpp
   ${CMAKE_SOURCE_DIR}/ext/math/sincos.cpp

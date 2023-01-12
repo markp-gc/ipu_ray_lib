@@ -1,6 +1,6 @@
 // Copyright (c) 2022 Graphcore Ltd. All rights reserved.
 
-#include <Node.hpp>
+#include <CompactBVH2Node.hpp>
 
 bool CompactBVH2Node::intersect(const embree_utils::Vec3fa& o, const embree_utils::Vec3fa& i, float& t0, float& t1) const {
   // Test ray against each axis aligned slab in turn:

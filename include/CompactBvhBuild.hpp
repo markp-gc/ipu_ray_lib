@@ -4,7 +4,7 @@
 // into a more compact and efficient data structure.
 
 #include "embree_utils/node.hpp"
-#include "Node.hpp"
+#include "CompactBVH2Node.hpp"
 
 /// Recursively traverse a BVH2 sub-tree and flatten it into an array of compact nodes.
 std::uint32_t flattenBVH2Tree(const embree_utils::Node* node, std::vector<CompactBVH2Node>& compactTree, std::uint32_t depth, std::uint32_t& index, std::uint32_t& maxDepth);
