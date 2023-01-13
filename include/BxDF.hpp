@@ -32,33 +32,44 @@ embree_utils::Vec3fa sampleDiffuse(const embree_utils::Vec3fa& normal, float u1,
 // Perfectly specular BRDF
 inline
 embree_utils::Vec3fa reflect(const embree_utils::Vec3fa& rayDir, const embree_utils::Vec3fa& normal) {
-  auto cost = rayDir.dot(normal);
-  return (rayDir - (normal * (cost * 2.f))).normalized();
+  auto cosTheta = rayDir.dot(normal);
+  return (rayDir - (normal * (cosTheta * 2.f))).normalized();
 }
 
-// Glass/refractive BRDF - we use the vector version of Snell's law and Fresnel's law
-// to compute the outgoing reflection and refraction directions and probability weights.
-// Returns true if the ray was refracted.
+inline float schlick(float cosTheta, float ri) {
+    auto r0 = (1.f - ri) / (1.f + ri);
+    r0 = r0 * r0;
+    float base = 1.f - cosTheta;
+    float base2 = base * base;
+    float base5 = base2 * base * base2;
+    return r0 + (1.f - r0) * base5;
+}
+
 inline
-embree_utils::Vec3fa refract(const embree_utils::Ray& ray, embree_utils::Vec3fa normal,
+embree_utils::Vec3fa refract(const embree_utils::Vec3fa& dir, embree_utils::Vec3fa normal, float ndotr, float ri) {
+  using namespace embree_utils;
+  const auto cosTheta = -ndotr;
+  Vec3fa rPerp = (dir + (normal * cosTheta)) * ri;
+  Vec3fa rPar = normal * -std::sqrt(std::abs(1.f - rPerp.squaredNorm()));
+  return rPerp + rPar;
+}
+
+inline
+embree_utils::Vec3fa dielectric(const embree_utils::Ray& ray, embree_utils::Vec3fa normal,
              float ri, float u1) {
-  auto r0 = (1.f - ri)/(1.f + ri);
-  r0 = r0 * r0;
-  if(normal.dot(ray.direction) > 0.f) { // we're inside the medium
+  if(normal.dot(ray.direction) > 0.f) {
     normal = -normal;
   } else {
     ri = 1.f / ri;
   }
-  auto cost1 = -normal.dot(ray.direction); // cosine of theta_1
-  auto cost2 = 1.f - ri * ri * (1.f - cost1 * cost1); // cosine of theta_2
-  auto schlickBase = 1.f - cost1;
-  auto schlickBase2 = schlickBase * schlickBase;
-  auto prob = r0 + (1.f - r0) * (schlickBase2 * schlickBase * schlickBase2); // Schlick-approximation
-  if (cost2 > 0.f && u1 > prob) {
-    // refraction direction
-    return ((ray.direction * ri) + (normal * (ri * cost1 - sqrtf(cost2)))).normalized();
+
+  const float ndotr = normal.dot(ray.direction);
+  const auto cost1 = -ndotr;
+  const auto cost2 = 1.f - ri * ri * (1.f - cost1 * cost1);
+
+  if (cost2 > 0.f && u1 > schlick(cost1, ri)) {
+    return refract(ray.direction, normal, ndotr, ri);
   } else {
-    // reflection direction
-    return (ray.direction + normal * (cost1 * 2.f)).normalized();
+    return reflect(ray.direction, normal);
   }
 }
