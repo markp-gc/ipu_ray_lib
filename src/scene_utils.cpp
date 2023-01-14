@@ -14,6 +14,11 @@ void transform(HostTriangleMesh& mesh, std::function<void(embree_utils::Vec3fa&)
   for (auto& v : mesh.vertices) {
     tf(v);
   }
+
+  mesh.updateBoundingBox();
+  ipu_utils::logger()->debug("New bounding box for mesh: {} {} {} -> {} {} {}",
+    mesh.getBoundingBox().min.x, mesh.getBoundingBox().min.y, mesh.getBoundingBox().min.z,
+    mesh.getBoundingBox().max.x, mesh.getBoundingBox().max.y, mesh.getBoundingBox().max.z);
 }
 
 void addQuad(HostTriangleMesh& mesh, const std::vector<embree_utils::Vec3fa>& verts) {
@@ -99,9 +104,11 @@ void importMesh(std::string& filename, std::vector<HostTriangleMesh>& meshes) {
 }
 
 // Load a complete scene from GLTF.
-void importScene(std::string& filename) {
+SceneDescription importScene(std::string& filename) {
+  SceneDescription scene;
+
   Assimp::Importer importer;
-  const auto* scene = importer.ReadFile(filename,
+  const auto* aiFile = importer.ReadFile(filename,
     aiProcess_PreTransformVertices   |
     aiProcess_OptimizeMeshes         |
     aiProcess_CalcTangentSpace       |
@@ -109,19 +116,26 @@ void importScene(std::string& filename) {
     aiProcess_JoinIdenticalVertices  |
     aiProcess_SortByPType);
 
-  if (scene) {
+  if (aiFile) {
     ipu_utils::logger()->info("Importing scene from file '{}'", filename);
-    ipu_utils::logger()->info("Found {} meshes", scene->mNumMeshes);
-    ipu_utils::logger()->info("Found {} cameras", scene->mNumCameras);
-    ipu_utils::logger()->info("Found {} materials", scene->mNumMaterials);
-    ipu_utils::logger()->info("Found {} lights (ignored)", scene->mNumLights);
-    ipu_utils::logger()->info("Found {} textures: (ignored)", scene->mNumTextures);
+    ipu_utils::logger()->info("Found {} meshes", aiFile->mNumMeshes);
+    ipu_utils::logger()->info("Found {} cameras", aiFile->mNumCameras);
+    ipu_utils::logger()->info("Found {} materials", aiFile->mNumMaterials);
+    ipu_utils::logger()->info("Found {} lights (ignored)", aiFile->mNumLights);
+    ipu_utils::logger()->info("Found {} textures: (ignored)", aiFile->mNumTextures);
 
-    for (auto c = 0u; c < scene->mNumCameras; ++c) {
-      auto& camera = *scene->mCameras[c];
+    // Read cameras:
+    if (aiFile->mNumCameras < 1) {
+      ipu_utils::logger()->error("Scene must contain at least one camera");
+      throw std::runtime_error("No camera found in scene file.");
+    }
+
+    for (auto c = 0u; c < aiFile->mNumCameras; ++c) {
+      auto& camera = *aiFile->mCameras[c];
       const std::string camName = camera.mName.C_Str();
+
       ipu_utils::logger()->debug("Camera {} name: '{}'", c, camName);
-      ipu_utils::logger()->debug("Camera '{}' horizontal fov (radians): {}", camName,camera.mHorizontalFOV);
+      ipu_utils::logger()->debug("Camera '{}' horizontal fov (radians): {}", camName, camera.mHorizontalFOV);
 
       aiMatrix4x4 cm;
       camera.GetCameraMatrix(cm);
@@ -133,84 +147,140 @@ void importScene(std::string& filename) {
       ipu_utils::logger()->debug("Camera '{}' matrix: {}, {}, {}, {}", camName, cm.b1, cm.b2, cm.b3, cm.b4);
       ipu_utils::logger()->debug("Camera '{}' matrix: {}, {}, {}, {}", camName, cm.c1, cm.c2, cm.c3, cm.c4);
       ipu_utils::logger()->debug("Camera '{}' matrix: {}, {}, {}, {}", camName, cm.d1, cm.d2, cm.d3, cm.d4);
+
+      if (c == 0) {
+        if (aiFile->mNumCameras > 1) {
+          ipu_utils::logger()->warn("Scene contains more than one camera: using '{}'", camName);
+        }
+        scene.camera.horizontalFov = camera.mHorizontalFOV;
+        scene.camera.position = embree_utils::Vec3fa(p.x, p.y, p.z);
+        scene.camera.lookAt = embree_utils::Vec3fa(l.x, l.y, l.z);
+        scene.camera.matrix = {cm.a1, cm.a2, cm.a3, cm.a4, cm.b1, cm.b2, cm.b3, cm.b4, cm.c1, cm.c2, cm.c3, cm.c4, cm.d1, cm.d2, cm.d3, cm.d4};
+      }
     }
 
-    for (auto m = 0u; m < scene->mNumMaterials; ++m) {
-      auto& mat = *scene->mMaterials[m];
+    // Get materials:
+    scene.materials.reserve(aiFile->mNumMaterials);
+
+    for (auto m = 0u; m < aiFile->mNumMaterials; ++m) {
+      auto& mat = *aiFile->mMaterials[m];
       const std::string matName = mat.GetName().C_Str();
       ipu_utils::logger()->debug("Material {} name: '{}'", m, matName);
+
+      scene.materials.emplace_back();
+      auto& newMaterial = scene.materials.back();
+
       aiColor3D col;
-
-      int shadingModel;
-      mat.Get(AI_MATKEY_SHADING_MODEL, shadingModel);
-      ipu_utils::logger()->debug("Material '{}' shading model: {}", matName, shadingModel);
-
       auto err = mat.Get(AI_MATKEY_COLOR_DIFFUSE, col);
       if (err == AI_SUCCESS) {
+        newMaterial.albedo = embree_utils::Vec3fa(col.r, col.g, col.b);
         ipu_utils::logger()->debug("Material '{}' diffuse: {}, {}, {}",
                                    matName, col.r, col.g, col.b);
       }
 
       mat.Get(AI_MATKEY_COLOR_EMISSIVE, col);
       if (err == AI_SUCCESS) {
+        newMaterial.emission = embree_utils::Vec3fa(col.r, col.g, col.b);
         ipu_utils::logger()->debug("Material '{}' emission: {}, {}, {}",
                                    matName, col.r, col.g, col.b);
+        if (newMaterial.emission.isNonZero()) {
+          newMaterial.emissive = true;
+        }
       }
 
-      err = mat.Get(AI_MATKEY_COLOR_SPECULAR, col);
+      err = mat.Get(AI_MATKEY_REFRACTI, newMaterial.ior);
       if (err == AI_SUCCESS) {
-        ipu_utils::logger()->debug("Material '{}' specular: {}, {}, {}",
-                                   matName, col.r, col.g, col.b);
+        ipu_utils::logger()->debug("Material '{}' refractive index: {}", matName, newMaterial.ior);
       }
 
-      err = mat.Get(AI_MATKEY_COLOR_AMBIENT, col);
-      if (err == AI_SUCCESS) {
-        ipu_utils::logger()->debug("Material '{}' ambient: {}, {}, {}",
-                                   matName, col.r, col.g, col.b);
+      // In absence of emission factor in importer use shininess
+      // as emission factor. This needs to be faked it when the file
+      // is exported or modify after (e.g. for dae files you can add
+      // it to the markdown by hand):
+      if (newMaterial.emissive) {
+        float emissionFactor = 1.f;
+        err = mat.Get(AI_MATKEY_SHININESS, emissionFactor);
+        if (err == AI_SUCCESS) {
+          newMaterial.emissive *= emissionFactor;
+          ipu_utils::logger()->debug("Material '{}' shininess: {}", matName, emissionFactor);
+          ipu_utils::logger()->warn("Material '{}' shininess ({}) will be used as emission factor", matName, emissionFactor);
+        }
       }
 
-      err = mat.Get(AI_MATKEY_COLOR_TRANSPARENT, col);
-      if (err == AI_SUCCESS) {
-        ipu_utils::logger()->debug("Material '{}' transparent: {}, {}, {}",
-                                   matName, col.r, col.g, col.b);
-      }
-
-      float ri;
-      err = mat.Get(AI_MATKEY_REFRACTI, ri);
-      if (err == AI_SUCCESS) {
-        ipu_utils::logger()->debug("Material '{}' refractive index: {}",
-                                   matName, ri);
-      }
-
-      float ref;
-      err = mat.Get(AI_MATKEY_REFLECTIVITY, ref);
-      if (err == AI_SUCCESS) {
-        ipu_utils::logger()->debug("Material '{}' reflectivity: {}",
-                                   matName, ref);
-      }
-
-      float shine;
-      err = mat.Get(AI_MATKEY_SHININESS, shine);
-      if (err == AI_SUCCESS) {
-        ipu_utils::logger()->debug("Material '{}' shininess: {}",
-                                   matName, shine);
-      }
-
-      float transparency;
+      float transparency = 0.f;
       err = mat.Get(AI_MATKEY_TRANSPARENCYFACTOR, transparency);
       if (err == AI_SUCCESS) {
-        ipu_utils::logger()->debug("Material '{}' transparency: {}",
-                                   matName, transparency);
+        // Assume transparent materials refract.
+        newMaterial.type = Material::Type::Refractive;
+        ipu_utils::logger()->debug("Material '{}' transparency: {}", matName, transparency);
+      }
+      // Transparency is not parsed from collada so add a hack to read glass material from scene:
+      if (matName.find("glass") != std::string::npos) {
+        newMaterial.type = Material::Type::Refractive;
+      }
+
+      float reflectivity = 0.f;
+      err = mat.Get(AI_MATKEY_REFLECTIVITY, reflectivity);
+      if (err == AI_SUCCESS) {
+        if (reflectivity > 0.f) {
+          // Any reflectivity impplies material is specular:
+          newMaterial.type = Material::Type::Specular;
+        }
+        ipu_utils::logger()->debug("Material '{}' reflectivity: {}", matName, reflectivity);
       }
     }
 
-    for (auto m = 0u; m < scene->mNumMeshes; ++m) {
-      auto& mesh = *scene->mMeshes[m];
-      auto& mat = *scene->mMaterials[mesh.mMaterialIndex];
-      ipu_utils::logger()->debug("Mesh {} '{}' has {} faces", m, mesh.mName.C_Str(), mesh.mNumFaces);
-      ipu_utils::logger()->debug("Mesh '{}' material: '{}' mat index: {}", mesh.mName.C_Str(), mat.GetName().C_Str(), mesh.mMaterialIndex);
+    // Get meshes:
+    scene.meshes.reserve(aiFile->mNumMeshes);
+    scene.matIDs.reserve(aiFile->mNumMeshes);
+
+    for (auto m = 0u; m < aiFile->mNumMeshes; ++m) {
+      auto& mesh = *aiFile->mMeshes[m];
+      auto& mat = *aiFile->mMaterials[mesh.mMaterialIndex];
+      scene.matIDs.push_back(mesh.mMaterialIndex);
+      ipu_utils::logger()->debug("Mesh {} '{}' has {} faces. Material: {} '{}'", m, mesh.mName.C_Str(), mesh.mNumFaces, mesh.mMaterialIndex, mat.GetName().C_Str());
+
+      scene.meshes.push_back(HostTriangleMesh());
+      auto& hostMesh = scene.meshes.back();
+      for (auto f = 0u; f < mesh.mNumFaces; ++f) {
+        const auto& face = mesh.mFaces[f];
+        if (face.mNumIndices != 3) {
+          throw std::runtime_error("Only triangle meshes are supported.");
+        }
+        hostMesh.triangles.push_back(Triangle{face.mIndices[0], face.mIndices[1], face.mIndices[2]});
+      }
+      for (auto v = 0u; v < mesh.mNumVertices; ++v) {
+        auto& vert = mesh.mVertices[v];
+        hostMesh.vertices.push_back(embree_utils::Vec3fa(vert[0], vert[1], vert[2]));
+      }
+      hostMesh.updateBoundingBox();
+      ipu_utils::logger()->debug("Bounding box for mesh {}: {} {} {} -> {} {} {}", m,
+        hostMesh.getBoundingBox().min.x, hostMesh.getBoundingBox().min.y, hostMesh.getBoundingBox().min.z,
+        hostMesh.getBoundingBox().max.x, hostMesh.getBoundingBox().max.y, hostMesh.getBoundingBox().max.z);
+    }
+
+    // Transform scene so camera is at origin:
+    auto tf = [&](embree_utils::Vec3fa& v) {
+      // aiMatrix4x4t cm(
+      //   scene.camera.matrix[0], scene.camera.matrix[1], scene.camera.matrix[2], scene.camera.matrix[3],
+      //   scene.camera.matrix[4], scene.camera.matrix[5], scene.camera.matrix[6], scene.camera.matrix[7],
+      //   scene.camera.matrix[8], scene.camera.matrix[9], scene.camera.matrix[10], scene.camera.matrix[11],
+      //   scene.camera.matrix[12], scene.camera.matrix[13], scene.camera.matrix[14], scene.camera.matrix[15]);
+      // auto p = cm.Inverse() * aiVector3D(v.x, v.y, v.z);
+      // v.x = p.x;
+      // v.y = p.y;
+      // v.z = p.z;
+      v -= scene.camera.position;
+      v.x -= .9f;
+      v.y += .4f;
+    };
+
+    for (auto& m : scene.meshes) {
+      transform(m, tf);
     }
   }
+
+  return scene;
 }
 
 std::vector<HostTriangleMesh> makeCornellBox() {

@@ -20,6 +20,13 @@ struct PathTraceSettings {
   std::uint32_t roulletteStartDepth;
 };
 
+struct Camera {
+  float horizontalFov;
+  embree_utils::Vec3fa position;
+  embree_utils::Vec3fa lookAt;
+  std::vector<float> matrix;
+};
+
 struct SceneDescription {
   // Primitives:
   std::vector<HostTriangleMesh> meshes;
@@ -32,6 +39,7 @@ struct SceneDescription {
   // is defined by the order of primitives above.
   std::vector<std::uint32_t> matIDs;
 
+  Camera camera;
   float shadowRayOffset;
 
   std::unique_ptr<PathTraceSettings> pathTrace;
@@ -47,4 +55,4 @@ HostTriangleMesh makeCornellShortBlock();
 HostTriangleMesh makeCornellTallBlock();
 SceneDescription makeCornellBoxScene(std::string& meshFile, bool boxOnly);
 
-void importScene(std::string& filename);
+SceneDescription importScene(std::string& filename);

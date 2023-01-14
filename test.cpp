@@ -573,11 +573,9 @@ int main(int argc, char** argv) {
   // Create the high level scene description:
   auto meshFile = args["mesh-file"].as<std::string>();
 
-  // Debugging new file import:
-  importScene(meshFile);
-  //exit(0);
+  auto scene = importScene(meshFile);
+  //auto scene = makeCornellBoxScene(meshFile, args["box-only"].as<bool>());
 
-  auto scene = makeCornellBoxScene(meshFile, args["box-only"].as<bool>());
   auto rngSeed = args["seed"].as<std::uint64_t>();
   if (args["render-mode"].as<std::string>() == "path-trace") {
     scene.pathTrace = std::make_unique<PathTraceSettings>();
