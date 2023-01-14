@@ -30,8 +30,8 @@
 void initPerspectiveRayStream(std::vector<embree_utils::TraceResult>& rayStream,
                               const cv::Mat& image,
                               const CropWindow& window,
+                              float fovRadians,
                               xoshiro::Generator* gen = nullptr) {
-  constexpr float fov = embree_utils::Piby4;
   const auto rayOrigin = embree_utils::Vec3fa(0, 0, 0);
 
   std::normal_distribution<float> d{0.f, .25f};
@@ -45,7 +45,7 @@ void initPerspectiveRayStream(std::vector<embree_utils::TraceResult>& rayStream,
         pu += d(*gen);
         pv += d(*gen);
       }
-      const auto rayDir = pixelToRayDir(pv, pu, image.cols, image.rows, fov);
+      const auto rayDir = pixelToRayDir(pv, pu, image.cols, image.rows, fovRadians);
       rayStream[i].h = embree_utils::HitRecord(rayOrigin, rayDir);
       rayStream[i].p = embree_utils::PixelCoord{r, c};
       i += 1;
@@ -214,7 +214,7 @@ std::vector<RTCBuildPrimitive> makeBuildPrimitivesForEmbree(const SceneData& dat
 
 std::vector<embree_utils::TraceResult> renderEmbree(const SceneRef& data, embree_utils::EmbreeScene& embreeScene, cv::Mat& image) {
   std::vector<embree_utils::TraceResult> rayStream(data.window.w * data.window.h);
-  initPerspectiveRayStream(rayStream, image, data.window);
+  initPerspectiveRayStream(rayStream, image, data.window, data.fovRadians);
   zeroRgb(rayStream);
 
   embreeScene.commitScene();
@@ -392,7 +392,7 @@ std::vector<embree_utils::TraceResult> renderCPU(
   }
 
   std::vector<embree_utils::TraceResult> rayStream(sceneRef.window.w * sceneRef.window.h);
-  initPerspectiveRayStream(rayStream, image, sceneRef.window);
+  initPerspectiveRayStream(rayStream, image, sceneRef.window, sceneRef.fovRadians);
   zeroRgb(rayStream);
 
   // Make a CompactBvh object for our custom CPU ray-tracer.
@@ -411,7 +411,7 @@ std::vector<embree_utils::TraceResult> renderCPU(
   if (scene.pathTrace) {
     for (auto s = 0u; s < scene.pathTrace->samplesPerPixel; ++s) {
       // Regenerate new camera rays at each sample step:
-      initPerspectiveRayStream(rayStream, image, sceneRef.window, &scene.pathTrace->sampler);
+      initPerspectiveRayStream(rayStream, image, sceneRef.window, sceneRef.fovRadians, &scene.pathTrace->sampler);
       #pragma omp parallel for schedule(auto)
       for (auto itr = rayStream.begin(); itr != rayStream.end(); ++itr) {
         pathTrace(sceneRef, scene, bvh, *itr, primLookup);
@@ -449,7 +449,7 @@ std::vector<embree_utils::TraceResult> renderIPU(
   const boost::program_options::variables_map& args)
 {
   std::vector<embree_utils::TraceResult> rayStream(sceneRef.window.w * sceneRef.window.h);
-  initPerspectiveRayStream(rayStream, image, sceneRef.window);
+  initPerspectiveRayStream(rayStream, image, sceneRef.window, sceneRef.fovRadians);
   zeroRgb(rayStream);
 
   auto ipus = args["ipus"].as<std::uint32_t>();
@@ -568,7 +568,7 @@ int main(int argc, char** argv) {
   addOptions(desc);
   auto args = parseOptions(argc, argv, desc);
 
-  spdlog::set_level(spdlog::level::trace);
+  spdlog::set_level(spdlog::level::info);
 
   // Create the high level scene description:
   auto meshFile = args["mesh-file"].as<std::string>();
@@ -685,6 +685,7 @@ int main(int argc, char** argv) {
     rngSeed,
     (float)imageWidth,
     (float)imageHeight,
+    scene.camera.horizontalFov,
     window,
     args["samples"].as<std::uint32_t>(),
     args["max-path-length"].as<std::uint32_t>(),

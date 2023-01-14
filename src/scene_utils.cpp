@@ -259,20 +259,16 @@ SceneDescription importScene(std::string& filename) {
         hostMesh.getBoundingBox().max.x, hostMesh.getBoundingBox().max.y, hostMesh.getBoundingBox().max.z);
     }
 
-    // Transform scene so camera is at origin:
+    // Transform scene so camera is at origin looking straight down -z axis:
+    aiMatrix4x4t cm(
+      scene.camera.matrix[0], scene.camera.matrix[1], scene.camera.matrix[2], scene.camera.matrix[3],
+      scene.camera.matrix[4], scene.camera.matrix[5], scene.camera.matrix[6], scene.camera.matrix[7],
+      scene.camera.matrix[8], scene.camera.matrix[9], scene.camera.matrix[10], scene.camera.matrix[11],
+      scene.camera.matrix[12], scene.camera.matrix[13], scene.camera.matrix[14], scene.camera.matrix[15]);
+
     auto tf = [&](embree_utils::Vec3fa& v) {
-      // aiMatrix4x4t cm(
-      //   scene.camera.matrix[0], scene.camera.matrix[1], scene.camera.matrix[2], scene.camera.matrix[3],
-      //   scene.camera.matrix[4], scene.camera.matrix[5], scene.camera.matrix[6], scene.camera.matrix[7],
-      //   scene.camera.matrix[8], scene.camera.matrix[9], scene.camera.matrix[10], scene.camera.matrix[11],
-      //   scene.camera.matrix[12], scene.camera.matrix[13], scene.camera.matrix[14], scene.camera.matrix[15]);
-      // auto p = cm.Inverse() * aiVector3D(v.x, v.y, v.z);
-      // v.x = p.x;
-      // v.y = p.y;
-      // v.z = p.z;
-      v -= scene.camera.position;
-      v.x -= .9f;
-      v.y += .4f;
+      auto p = cm * aiVector3D(v.x, v.y, v.z);
+      v = embree_utils::Vec3fa(-p.x, p.y, -p.z); // Swap handedness
     };
 
     for (auto& m : scene.meshes) {

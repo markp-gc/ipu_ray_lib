@@ -58,6 +58,7 @@ struct SceneRef {
   std::uint64_t rngSeed;
   float imageWidth;
   float imageHeight;
+  float fovRadians;
   CropWindow window;
   std::uint32_t samplesPerPixel;
   std::uint32_t maxPathLength; // Hard limit on number of bounces in path tracing.

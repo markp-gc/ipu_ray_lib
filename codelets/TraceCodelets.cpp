@@ -125,10 +125,10 @@ public:
   float imageWidth;
   float imageHeight;
   float antiAliasScale;
+  float fovRadians;
 
   bool compute(unsigned int workerID) {
     auto wrappedRays = ArrayRef<embree_utils::TraceResult>::reinterpret(&rays[0], rays.size());
-    constexpr float fov = Piby4;
     const auto rayOrigin = embree_utils::Vec3fa(0, 0, 0);
 
     // Generate camera rays. Each worker starts processing offset by their worker IDs.
@@ -140,7 +140,7 @@ public:
       float2 g = __builtin_ipu_f32v2grand();
       float2 p = {result.p.u, result.p.v}; // row, col
       p += float2{antiAliasScale, antiAliasScale} * g;
-      const auto rayDir = pixelToRayDir(p[1], p[0], imageWidth, imageHeight, fov);
+      const auto rayDir = pixelToRayDir(p[1], p[0], imageWidth, imageHeight, fovRadians);
       result.h = embree_utils::HitRecord(rayOrigin, rayDir);
     }
 

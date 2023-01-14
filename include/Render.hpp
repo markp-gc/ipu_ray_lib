@@ -67,5 +67,5 @@ embree_utils::Vec3fa pixelToRayDir(float x, float y,
   return embree_utils::Vec3fa(
         2.f * x * aspect * tanTheta,
         -2.f * y * tanTheta,
-       -1.f).normalized();
+        -1.f).normalized();
 }

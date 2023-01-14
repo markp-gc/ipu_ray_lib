@@ -253,6 +253,7 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
     computeGraph.connect(rayGenVertex["rays"], rayTraceVars["rays"][t]);
     computeGraph.setInitialValue(rayGenVertex["imageWidth"], data.imageWidth);
     computeGraph.setInitialValue(rayGenVertex["imageHeight"], data.imageHeight);
+    computeGraph.setInitialValue(rayGenVertex["fovRadians"], data.fovRadians);
 
     // Ray tracing:
     // Choose between two ray trace modes at compile time.

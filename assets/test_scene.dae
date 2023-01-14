@@ -15,8 +15,8 @@
       <optics>
         <technique_common>
           <perspective>
-            <xfov sid="xfov">30</xfov>
-            <aspect_ratio>1.777778</aspect_ratio>
+            <xfov sid="xfov">45</xfov>
+            <aspect_ratio>1.0</aspect_ratio>
             <znear sid="znear">0.1</znear>
             <zfar sid="zfar">100</zfar>
           </perspective>
