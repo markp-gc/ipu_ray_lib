@@ -46,3 +46,5 @@ std::vector<HostTriangleMesh> makeCornellBox();
 HostTriangleMesh makeCornellShortBlock();
 HostTriangleMesh makeCornellTallBlock();
 SceneDescription makeCornellBoxScene(std::string& meshFile, bool boxOnly);
+
+void importScene(std::string& filename);

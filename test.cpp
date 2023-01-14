@@ -568,10 +568,15 @@ int main(int argc, char** argv) {
   addOptions(desc);
   auto args = parseOptions(argc, argv, desc);
 
-  spdlog::set_level(spdlog::level::info);
+  spdlog::set_level(spdlog::level::trace);
 
   // Create the high level scene description:
   auto meshFile = args["mesh-file"].as<std::string>();
+
+  // Debugging new file import:
+  importScene(meshFile);
+  //exit(0);
+
   auto scene = makeCornellBoxScene(meshFile, args["box-only"].as<bool>());
   auto rngSeed = args["seed"].as<std::uint64_t>();
   if (args["render-mode"].as<std::string>() == "path-trace") {

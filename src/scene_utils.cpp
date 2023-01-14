@@ -49,6 +49,7 @@ void importMesh(std::string& filename, std::vector<HostTriangleMesh>& meshes) {
     Assimp::Importer importer;
     const auto* scene = importer.ReadFile(filename,
       aiProcess_PreTransformVertices   |
+      aiProcess_OptimizeMeshes         |
       aiProcess_CalcTangentSpace       |
       aiProcess_Triangulate            |
       aiProcess_JoinIdenticalVertices  |
@@ -93,6 +94,121 @@ void importMesh(std::string& filename, std::vector<HostTriangleMesh>& meshes) {
       }
     } else  {
       throw std::runtime_error(importer.GetErrorString());
+    }
+  }
+}
+
+// Load a complete scene from GLTF.
+void importScene(std::string& filename) {
+  Assimp::Importer importer;
+  const auto* scene = importer.ReadFile(filename,
+    aiProcess_PreTransformVertices   |
+    aiProcess_OptimizeMeshes         |
+    aiProcess_CalcTangentSpace       |
+    aiProcess_Triangulate            |
+    aiProcess_JoinIdenticalVertices  |
+    aiProcess_SortByPType);
+
+  if (scene) {
+    ipu_utils::logger()->info("Importing scene from file '{}'", filename);
+    ipu_utils::logger()->info("Found {} meshes", scene->mNumMeshes);
+    ipu_utils::logger()->info("Found {} cameras", scene->mNumCameras);
+    ipu_utils::logger()->info("Found {} materials", scene->mNumMaterials);
+    ipu_utils::logger()->info("Found {} lights (ignored)", scene->mNumLights);
+    ipu_utils::logger()->info("Found {} textures: (ignored)", scene->mNumTextures);
+
+    for (auto c = 0u; c < scene->mNumCameras; ++c) {
+      auto& camera = *scene->mCameras[c];
+      const std::string camName = camera.mName.C_Str();
+      ipu_utils::logger()->debug("Camera {} name: '{}'", c, camName);
+      ipu_utils::logger()->debug("Camera '{}' horizontal fov (radians): {}", camName,camera.mHorizontalFOV);
+
+      aiMatrix4x4 cm;
+      camera.GetCameraMatrix(cm);
+      aiVector3D p = camera.mPosition;
+      aiVector3D l = camera.mLookAt;
+      ipu_utils::logger()->debug("Camera '{}' position: {}, {}, {}", camName, p.x, p.y, p.z);
+      ipu_utils::logger()->debug("Camera '{}' lookat: {}, {}, {}", camName, l.x, l.y, l.z);
+      ipu_utils::logger()->debug("Camera '{}' matrix: {}, {}, {}, {}", camName, cm.a1, cm.a2, cm.a3, cm.a4);
+      ipu_utils::logger()->debug("Camera '{}' matrix: {}, {}, {}, {}", camName, cm.b1, cm.b2, cm.b3, cm.b4);
+      ipu_utils::logger()->debug("Camera '{}' matrix: {}, {}, {}, {}", camName, cm.c1, cm.c2, cm.c3, cm.c4);
+      ipu_utils::logger()->debug("Camera '{}' matrix: {}, {}, {}, {}", camName, cm.d1, cm.d2, cm.d3, cm.d4);
+    }
+
+    for (auto m = 0u; m < scene->mNumMaterials; ++m) {
+      auto& mat = *scene->mMaterials[m];
+      const std::string matName = mat.GetName().C_Str();
+      ipu_utils::logger()->debug("Material {} name: '{}'", m, matName);
+      aiColor3D col;
+
+      int shadingModel;
+      mat.Get(AI_MATKEY_SHADING_MODEL, shadingModel);
+      ipu_utils::logger()->debug("Material '{}' shading model: {}", matName, shadingModel);
+
+      auto err = mat.Get(AI_MATKEY_COLOR_DIFFUSE, col);
+      if (err == AI_SUCCESS) {
+        ipu_utils::logger()->debug("Material '{}' diffuse: {}, {}, {}",
+                                   matName, col.r, col.g, col.b);
+      }
+
+      mat.Get(AI_MATKEY_COLOR_EMISSIVE, col);
+      if (err == AI_SUCCESS) {
+        ipu_utils::logger()->debug("Material '{}' emission: {}, {}, {}",
+                                   matName, col.r, col.g, col.b);
+      }
+
+      err = mat.Get(AI_MATKEY_COLOR_SPECULAR, col);
+      if (err == AI_SUCCESS) {
+        ipu_utils::logger()->debug("Material '{}' specular: {}, {}, {}",
+                                   matName, col.r, col.g, col.b);
+      }
+
+      err = mat.Get(AI_MATKEY_COLOR_AMBIENT, col);
+      if (err == AI_SUCCESS) {
+        ipu_utils::logger()->debug("Material '{}' ambient: {}, {}, {}",
+                                   matName, col.r, col.g, col.b);
+      }
+
+      err = mat.Get(AI_MATKEY_COLOR_TRANSPARENT, col);
+      if (err == AI_SUCCESS) {
+        ipu_utils::logger()->debug("Material '{}' transparent: {}, {}, {}",
+                                   matName, col.r, col.g, col.b);
+      }
+
+      float ri;
+      err = mat.Get(AI_MATKEY_REFRACTI, ri);
+      if (err == AI_SUCCESS) {
+        ipu_utils::logger()->debug("Material '{}' refractive index: {}",
+                                   matName, ri);
+      }
+
+      float ref;
+      err = mat.Get(AI_MATKEY_REFLECTIVITY, ref);
+      if (err == AI_SUCCESS) {
+        ipu_utils::logger()->debug("Material '{}' reflectivity: {}",
+                                   matName, ref);
+      }
+
+      float shine;
+      err = mat.Get(AI_MATKEY_SHININESS, shine);
+      if (err == AI_SUCCESS) {
+        ipu_utils::logger()->debug("Material '{}' shininess: {}",
+                                   matName, shine);
+      }
+
+      float transparency;
+      err = mat.Get(AI_MATKEY_TRANSPARENCYFACTOR, transparency);
+      if (err == AI_SUCCESS) {
+        ipu_utils::logger()->debug("Material '{}' transparency: {}",
+                                   matName, transparency);
+      }
+    }
+
+    for (auto m = 0u; m < scene->mNumMeshes; ++m) {
+      auto& mesh = *scene->mMeshes[m];
+      auto& mat = *scene->mMaterials[mesh.mMaterialIndex];
+      ipu_utils::logger()->debug("Mesh {} '{}' has {} faces", m, mesh.mName.C_Str(), mesh.mNumFaces);
+      ipu_utils::logger()->debug("Mesh '{}' material: '{}' mat index: {}", mesh.mName.C_Str(), mat.GetName().C_Str(), mesh.mMaterialIndex);
     }
   }
 }
