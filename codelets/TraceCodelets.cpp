@@ -238,8 +238,7 @@ public:
             throughput *= material.albedo;
           } else if (material.type == Material::Type::Refractive) {
             const float u1 = hw_uniform_0_1();
-            constexpr float refractiveIndex = 1.52f;
-            hit.r.direction = dielectric(hit.r, hit.normal, refractiveIndex, u1);
+            hit.r.direction = dielectric(hit.r, hit.normal, material.ior, u1);
             throughput *= material.albedo;
           } else {
             // Mark an error:

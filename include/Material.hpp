@@ -13,6 +13,7 @@ struct Material {
   Material()
   :
     albedo(0.f, 0.f, 0.f),
+    ior(1.52f),
     emission(0.f, 0.f, 0.f),
     type(Material::Type::Diffuse),
     emissive(false) {}
@@ -20,11 +21,12 @@ struct Material {
   Material(const embree_utils::Vec3fa& a,
            const embree_utils::Vec3fa& e, Material::Type t)
   :
-    albedo(a), emission(e), type(t),
+    albedo(a), ior(1.52f), emission(e), type(t),
     emissive(emission.isNonZero())
   {}
 
   embree_utils::Vec3fa albedo;
+  float ior; // index of refraction
   embree_utils::Vec3fa emission;
   Type type;
   bool emissive;

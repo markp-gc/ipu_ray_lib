@@ -349,8 +349,7 @@ void pathTrace(const SceneRef& sceneRef,
         float u1;
         #pragma omp critical(sample)
         { u1 = scene.pathTrace->sampler.uniform_0_1(); }
-        constexpr float refractiveIndex = 1.52f;
-        hit.r.direction = dielectric(hit.r, hit.normal, refractiveIndex, u1);
+        hit.r.direction = dielectric(hit.r, hit.normal, material.ior, u1);
         throughput *= material.albedo;
       } else {
         // Mark an error:
