@@ -83,12 +83,12 @@ For a list of all command options see `./test --help`.
 
 With the `--mesh-file` option the program will attempt to load any file format
 supported by the [Open Asset Import Library](https://github.com/assimp/assimp).
-It will attempt to interpret imported material propperties into one of the
+It will attempt to interpret imported material properties into one of the
 supported materials (currently a bit limited). Until this is improved an example
 DAE file that has been exported from [Blender](https://www.blender.org) is included:
 this is a human readable file so that you can try to work out how to export your own
 scenes by inspecting it. You can render the scene from the DAE file like this
-(turning on logging so you can see how materials are being intrepretted):
+(turning on logging so you can see how materials are being interpreted):
 
 ```
 ./test -w 1440 -h 1440 --render-mode path-trace --visualise rgb --samples 1000 --ipus 4 --ipu-only --mesh-file ../assets/test_scene.dae --log-level debug
