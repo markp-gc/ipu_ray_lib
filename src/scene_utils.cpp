@@ -153,8 +153,6 @@ SceneDescription importScene(std::string& filename) {
           ipu_utils::logger()->warn("Scene contains more than one camera: using '{}'", camName);
         }
         scene.camera.horizontalFov = camera.mHorizontalFOV;
-        scene.camera.position = embree_utils::Vec3fa(p.x, p.y, p.z);
-        scene.camera.lookAt = embree_utils::Vec3fa(l.x, l.y, l.z);
         scene.camera.matrix = {cm.a1, cm.a2, cm.a3, cm.a4, cm.b1, cm.b2, cm.b3, cm.b4, cm.c1, cm.c2, cm.c3, cm.c4, cm.d1, cm.d2, cm.d3, cm.d4};
       }
     }
@@ -500,6 +498,8 @@ SceneDescription makeCornellBoxScene(std::string& meshFile, bool boxOnly) {
   if (scene.matIDs.size() < numPrims) {
     throw std::logic_error("All primitives must be assigned a material.");
   }
+
+  scene.camera.horizontalFov = embree_utils::Piby4;
 
   return scene;
 }

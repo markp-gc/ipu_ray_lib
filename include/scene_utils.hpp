@@ -22,8 +22,7 @@ struct PathTraceSettings {
 
 struct Camera {
   float horizontalFov;
-  embree_utils::Vec3fa position;
-  embree_utils::Vec3fa lookAt;
+  // 16 coefficients of homogenous transform matrix in row major order:
   std::vector<float> matrix;
 };
 

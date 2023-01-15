@@ -500,15 +500,19 @@ void addOptions(boost::program_options::options_description& desc) {
   ("crop", po::value<std::string>()->default_value(""),
    "String describing a window of the image to render. Format is wxh+c+r, "
    "where wxh is the width by height of window and +c+r specifies the column and row offset of the window.")
-  ("mesh-file", po::value<std::string>()->default_value(std::string()), "Mesh file to include in render. Format must be supported by libassimp.")
+  ("mesh-file", po::value<std::string>()->default_value(std::string()),
+                "Mesh file containing a scene to render. Format must be supported by libassimp "
+                "(That library does not handle all formats well even if they are 'supported': "
+                "consult the Blender export guide in the README. "
+                "If no mesh file is specified the scene defaults to an built-in Cornell box scene.")
+  ("box-only", po::bool_switch()->default_value(false), "If rendering the built-in scene only render the original Cornell box without extra elements.")
   ("visualise", po::value<std::string>()->default_value("rgb"), "Choose the render output values to test/visualise. One of [rgb, normal, hitpoint, tfar, color, id]")
-  ("ray-epsilon", po::value<float>()->default_value(0.0035f), "Shadow ray min intersect distance (applied for Embree, CPU, and IPU).")
+  ("ray-epsilon", po::value<float>()->default_value(0.0035f), "Offset used when spawning rays to avoid self intersection (same offset applied for Embree, CPU, and IPU).")
   ("render-mode", po::value<std::string>()->default_value("path-trace"), "Choose type of render from [shadow-trace, path-trace]. To see result set visualise=rgb")
   ("max-path-length", po::value<std::uint32_t>()->default_value(12), "Max path length for path tracing.")
   ("roulette-start-depth", po::value<std::uint32_t>()->default_value(5), "Path length after which rays can be randomly terminated with prob. inversely proportional to their throughput.")
   ("samples", po::value<std::uint32_t>()->default_value(256), "Number of samples per pixel for path tracing.")
   ("seed", po::value<std::uint64_t>()->default_value(1442), "RNG seed.")
-  ("box-only", po::bool_switch()->default_value(false), "Only render the original Cornell box scene without extra elements.")
   ("ipu-only", po::bool_switch()->default_value(false), "Only render on IPU (e.g. if you don't want to wait for slow CPU path tracing).");
 }
 
@@ -566,15 +570,29 @@ std::optional<CropWindow> parseCropString(const std::string& cropFmt) {
 int main(int argc, char** argv) {
   boost::program_options::options_description desc;
   addOptions(desc);
-  auto args = parseOptions(argc, argv, desc);
+  boost::program_options::variables_map args;
+  try {
+    args = parseOptions(argc, argv, desc);
+  } catch (const std::exception& e) {
+    ipu_utils::logger()->info("Exiting after: {}.", e.what());
+    return EXIT_FAILURE;
+  }
 
   spdlog::set_level(spdlog::level::info);
 
   // Create the high level scene description:
   auto meshFile = args["mesh-file"].as<std::string>();
 
-  auto scene = importScene(meshFile);
-  //auto scene = makeCornellBoxScene(meshFile, args["box-only"].as<bool>());
+  SceneDescription scene;
+  if (meshFile.empty()) {
+    // If no meshfile is provided the default to the box. In this case a
+    // hard coded mesh file is displayed using one of the boxes as a plinth:
+    meshFile = "../assets/monkey_bust.glb";
+    scene = makeCornellBoxScene(meshFile, args["box-only"].as<bool>());
+  } else {
+    // Otherwise load only the scene
+    scene = importScene(meshFile);
+  }
 
   auto rngSeed = args["seed"].as<std::uint64_t>();
   if (args["render-mode"].as<std::string>() == "path-trace") {
