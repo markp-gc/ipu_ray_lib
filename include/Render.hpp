@@ -59,9 +59,8 @@ void traceShadowRay(const CompactBvh& bvh,
 inline
 embree_utils::Vec3fa pixelToRayDir(float x, float y,
                                    float w, float h,
-                                   float fov) {
+                                   float tanTheta) { // tanTheta = tan(fov/2)
   const float aspect = w / h;
-  const auto tanTheta = tanf(fov / 2.f);
   x = (x / w) - .5f;
   y = (y / h) - .5f;
   return embree_utils::Vec3fa(

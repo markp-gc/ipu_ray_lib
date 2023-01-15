@@ -131,6 +131,11 @@ public:
     auto wrappedRays = ArrayRef<embree_utils::TraceResult>::reinterpret(&rays[0], rays.size());
     const auto rayOrigin = embree_utils::Vec3fa(0, 0, 0);
 
+    // Do trig outside of loop:
+    float s, c;
+    sincos(fovRadians / 2.f, s, c);
+    const auto fovTanTheta = s / c;
+
     // Generate camera rays. Each worker starts processing offset by their worker IDs.
     // The external Poplar graph construction code ensures the number of rays to process on each
     // tile is a multiple of 6 (by padding or otherwise):
@@ -140,7 +145,7 @@ public:
       float2 g = __builtin_ipu_f32v2grand();
       float2 p = {result.p.u, result.p.v}; // row, col
       p += float2{antiAliasScale, antiAliasScale} * g;
-      const auto rayDir = pixelToRayDir(p[1], p[0], imageWidth, imageHeight, fovRadians);
+      const auto rayDir = pixelToRayDir(p[1], p[0], imageWidth, imageHeight, fovTanTheta);
       result.h = embree_utils::HitRecord(rayOrigin, rayDir);
     }
 

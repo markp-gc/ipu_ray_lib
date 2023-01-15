@@ -34,6 +34,11 @@ void initPerspectiveRayStream(std::vector<embree_utils::TraceResult>& rayStream,
                               xoshiro::Generator* gen = nullptr) {
   const auto rayOrigin = embree_utils::Vec3fa(0, 0, 0);
 
+  // Do trig outside of loop:
+  float s, c;
+  sincos(fovRadians / 2.f, s, c);
+  const auto fovTanTheta = s / c;
+
   std::normal_distribution<float> d{0.f, .25f};
 
   auto i = 0u;
@@ -45,7 +50,7 @@ void initPerspectiveRayStream(std::vector<embree_utils::TraceResult>& rayStream,
         pu += d(*gen);
         pv += d(*gen);
       }
-      const auto rayDir = pixelToRayDir(pv, pu, image.cols, image.rows, fovRadians);
+      const auto rayDir = pixelToRayDir(pv, pu, image.cols, image.rows, fovTanTheta);
       rayStream[i].h = embree_utils::HitRecord(rayOrigin, rayDir);
       rayStream[i].p = embree_utils::PixelCoord{r, c};
       i += 1;
