@@ -513,7 +513,31 @@ void addOptions(boost::program_options::options_description& desc) {
   ("roulette-start-depth", po::value<std::uint32_t>()->default_value(5), "Path length after which rays can be randomly terminated with prob. inversely proportional to their throughput.")
   ("samples", po::value<std::uint32_t>()->default_value(256), "Number of samples per pixel for path tracing.")
   ("seed", po::value<std::uint64_t>()->default_value(1442), "RNG seed.")
-  ("ipu-only", po::bool_switch()->default_value(false), "Only render on IPU (e.g. if you don't want to wait for slow CPU path tracing).");
+  ("ipu-only", po::bool_switch()->default_value(false), "Only render on IPU (e.g. if you don't want to wait for slow CPU path tracing).")
+  ("log-level", po::value<std::string>()->default_value("info"),
+  "Set the log level to one of the following: 'trace', 'debug', 'info', 'warn', 'err', 'critical', 'off'.");
+}
+
+void setupLogging(const boost::program_options::variables_map& args) {
+  std::map<std::string, spdlog::level::level_enum> levelFromStr = {
+    {"trace", spdlog::level::trace},
+    {"debug", spdlog::level::debug},
+    {"info", spdlog::level::info},
+    {"warn", spdlog::level::warn},
+    {"err", spdlog::level::err},
+    {"critical", spdlog::level::critical},
+    {"off", spdlog::level::off}
+  };
+
+  const auto levelStr = args["log-level"].as<std::string>();
+  try {
+    spdlog::set_level(levelFromStr.at(levelStr));
+  } catch (const std::exception& e) {
+    std::stringstream ss;
+    ss << "Invalid log-level: '" << levelStr << "'";
+    throw std::runtime_error(ss.str());
+  }
+  spdlog::set_pattern("[%H:%M:%S.%f] [%L] [%t] %v");
 }
 
 boost::program_options::variables_map parseOptions(int argc, char** argv, boost::program_options::options_description& desc) {
@@ -573,12 +597,11 @@ int main(int argc, char** argv) {
   boost::program_options::variables_map args;
   try {
     args = parseOptions(argc, argv, desc);
+    setupLogging(args);
   } catch (const std::exception& e) {
     ipu_utils::logger()->info("Exiting after: {}.", e.what());
     return EXIT_FAILURE;
   }
-
-  spdlog::set_level(spdlog::level::info);
 
   // Create the high level scene description:
   auto meshFile = args["mesh-file"].as<std::string>();

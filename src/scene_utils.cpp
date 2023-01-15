@@ -211,10 +211,12 @@ SceneDescription importScene(std::string& filename) {
         // Assume transparent materials refract.
         newMaterial.type = Material::Type::Refractive;
         ipu_utils::logger()->debug("Material '{}' transparency: {}", matName, transparency);
+        ipu_utils::logger()->debug("Material '{}' interpretted as DIELECTRIC", matName);
       }
       // Transparency is not parsed from collada so add a hack to read glass material from scene:
       if (matName.find("glass") != std::string::npos) {
         newMaterial.type = Material::Type::Refractive;
+        ipu_utils::logger()->debug("Material '{}' interpretted as DIELECTRIC", matName);
       }
 
       float reflectivity = 0.f;
@@ -223,6 +225,7 @@ SceneDescription importScene(std::string& filename) {
         if (reflectivity > 0.f) {
           // Any reflectivity impplies material is specular:
           newMaterial.type = Material::Type::Specular;
+          ipu_utils::logger()->debug("Material '{}' interpretted as SPECULAR", matName);
         }
         ipu_utils::logger()->debug("Material '{}' reflectivity: {}", matName, reflectivity);
       }

@@ -55,10 +55,10 @@ ninja -j64
 
 ### Run the application
 
-The application loads mesh data using the [Open Asset Import Library](https://github.com/assimp/assimp).
-Currently meshes need to fit on tile, the provided mesh is small enough:
+Ray data is distributed across all tiles (cores) but the scene data (BVH) is currently replicated across all tiles. This means meshes need to fit on one tile for now. You can specify your own scenes using the `--mesh-file` option. There is a built-in scene which is rendered if no file is specified:
+
 ```
-./test -w 1440 -h 1440 --mesh-file ../assets/monkey_bust.glb --render-mode path-trace --visualise rgb --samples 1000 --ipus 4 --ipu-only
+./test -w 1440 -h 1440 --render-mode path-trace --visualise rgb --samples 1000 --ipus 4 --ipu-only
 ```
 
 After about 30 seconds this command will output an EXR image 'out_rgb_ipu.exr' in the build folder.
@@ -73,8 +73,23 @@ take much much longer to render.
 If you just want to compare AOVs between CPU/Embree/IPU you can
 change to a quicker render mode. E.g. to compare normals:
 ```
-./test -w 1440 -h 1440 --mesh-file ../assets/monkey_bust.glb --render-mode shadow-trace --visualise normal --ipus 4
+./test -w 1440 -h 1440 --render-mode shadow-trace --visualise normal --ipus 4
 ```
 If you compare 'out_normal_cpu.exr', 'out_normal_embree.exr', and 'out_normal_ipu.exr' you should find they match closely.
 
 For a list of all command options see `./test --help`.
+
+#### Rendering Other Scenes
+
+With the `--mesh-file` option the program will attempt to load any file format
+supported by the [Open Asset Import Library](https://github.com/assimp/assimp).
+It will attempt to interpret imported material propperties into one of the
+supported materials (currently a bit limited). Until this is improved an example
+DAE file that has been exported from [Blender](https://www.blender.org) is included:
+this is a human readable file so that you can try to work out how to export your own
+scenes by inspecting it. You can render the scene from the DAE file like this
+(turning on logging so you can see how materials are being intrepretted):
+
+```
+./test -w 1440 -h 1440 --render-mode path-trace --visualise rgb --samples 1000 --ipus 4 --ipu-only --mesh-file ../assets/test_scene.dae --log-level debug
+```
