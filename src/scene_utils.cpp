@@ -199,9 +199,10 @@ SceneDescription importScene(std::string& filename) {
         float emissionFactor = 1.f;
         err = mat.Get(AI_MATKEY_SHININESS, emissionFactor);
         if (err == AI_SUCCESS) {
-          newMaterial.emissive *= emissionFactor;
+          newMaterial.emission *= emissionFactor;
           ipu_utils::logger()->debug("Material '{}' shininess: {}", matName, emissionFactor);
           ipu_utils::logger()->warn("Material '{}' shininess ({}) will be used as emission factor", matName, emissionFactor);
+          ipu_utils::logger()->trace("Material '{}' emission {}, {}, {}", matName, newMaterial.emission.x, newMaterial.emission.y, newMaterial.emission.z);
         }
       }
 

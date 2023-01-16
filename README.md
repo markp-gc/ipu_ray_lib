@@ -20,6 +20,7 @@ Key improvements of this implementation over the original are:
 - Triangle meshes are now supported.
 - An in SRAM acceleration structure is now supported:
   - A BVH built by Embree is compacted to fit in IPU SRAM.
+  - Compact BVH nodes are partially stored at half precision with no loss in ray-tracing precision.
 - Rays are streamed from external DRAM which has the following benefits:
   - No limit on the resolution of the images rendered as the entire result does not need to fit in SRAM at once.
   - Improved memory efficiency as only the minimal number of rays are kept on chip at once.

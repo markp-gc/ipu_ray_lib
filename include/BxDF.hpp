@@ -55,7 +55,7 @@ embree_utils::Vec3fa refract(const embree_utils::Vec3fa& dir, embree_utils::Vec3
 }
 
 inline
-embree_utils::Vec3fa dielectric(const embree_utils::Ray& ray, embree_utils::Vec3fa normal,
+std::pair<embree_utils::Vec3fa, bool> dielectric(const embree_utils::Ray& ray, embree_utils::Vec3fa normal,
              float ri, float u1) {
   if(normal.dot(ray.direction) > 0.f) {
     normal = -normal;
@@ -68,8 +68,8 @@ embree_utils::Vec3fa dielectric(const embree_utils::Ray& ray, embree_utils::Vec3
   const auto cost2 = 1.f - ri * ri * (1.f - cost1 * cost1);
 
   if (cost2 > 0.f && u1 > schlick(cost1, ri)) {
-    return refract(ray.direction, normal, ndotr, ri);
+    return {refract(ray.direction, normal, ndotr, ri), true};
   } else {
-    return reflect(ray.direction, normal);
+    return {reflect(ray.direction, normal), false};
   }
 }

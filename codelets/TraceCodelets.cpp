@@ -243,8 +243,9 @@ public:
             throughput *= material.albedo;
           } else if (material.type == Material::Type::Refractive) {
             const float u1 = hw_uniform_0_1();
-            hit.r.direction = dielectric(hit.r, hit.normal, material.ior, u1);
-            throughput *= material.albedo;
+            bool refracted;
+            std::tie(hit.r.direction, refracted) = dielectric(hit.r, hit.normal, material.ior, u1);
+            if (refracted) { throughput *= material.albedo; }
           } else {
             // Mark an error:
             result.rgb *= std::numeric_limits<float>::quiet_NaN();
