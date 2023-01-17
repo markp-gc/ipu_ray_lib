@@ -214,8 +214,9 @@ public:
       Vec3fa color(0.f, 0.f, 0.f);
 
       for (auto i = 0u; i < maxPathLength; ++i) {
+        offsetRay(hit.r, hit.normal); // offset rays to avoid self intersection.
         // Reset ray limits for next bounce:
-        hit.r.tMin = rayOffset; // offset rays to avoid self intersection.
+        hit.r.tMin = 0.f;
         hit.r.tMax = std::numeric_limits<float>::infinity();
         auto intersected = bvh.intersect(hit.r, primLookup);
 
@@ -243,8 +244,8 @@ public:
             throughput *= material.albedo;
           } else if (material.type == Material::Type::Refractive) {
             const float u1 = hw_uniform_0_1();
-            bool refracted;
-            std::tie(hit.r.direction, refracted) = dielectric(hit.r, hit.normal, material.ior, u1);
+            const auto [dir, refracted] = dielectric(hit.r, hit.normal, material.ior, u1);
+            hit.r.direction = dir;
             if (refracted) { throughput *= material.albedo; }
           } else {
             // Mark an error:
@@ -293,7 +294,6 @@ public:
 
   // Max depth needed for the BVH traversal stack:
   std::uint32_t maxLeafDepth;
-  float rayOffset;
   float ambientLightFactor;
   Input<Vector<float>> lightPos;
 
@@ -329,7 +329,7 @@ public:
 
       traceShadowRay(
         bvh,
-        wrappedMatIDs, wrappedMaterials, rayOffset,
+        wrappedMatIDs, wrappedMaterials,
         ambientLightFactor,
         result, primLookup, lp);
     }

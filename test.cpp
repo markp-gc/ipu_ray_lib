@@ -254,11 +254,24 @@ std::vector<embree_utils::TraceResult> renderEmbree(const SceneRef& data, embree
   #pragma omp parallel for schedule(auto)
   for (auto r = 0u; r < hitStream.size(); ++r) {
     auto& rh = hitStream[r];
-    // // advance origin to hit point
+    // advance origin to hit point
     if (std::isfinite(rh.ray.tfar)) {
       rh.ray.org_x += rh.ray.dir_x * rh.ray.tfar;
       rh.ray.org_y += rh.ray.dir_y * rh.ray.tfar;
       rh.ray.org_z += rh.ray.dir_z * rh.ray.tfar;
+
+      // offset ray to avoid self intersections:
+      const float absx = std::abs(rh.ray.org_x);
+      const float absy = std::abs(rh.ray.org_y);
+      const float absz = std::abs(rh.ray.org_z);
+      const float maxc = std::max(std::max(absx, absy), absz);
+      const float ndotd = (rh.ray.dir_x * rh.hit.Ng_x) + (rh.ray.dir_y * rh.hit.Ng_y) + ((rh.ray.dir_z * rh.hit.Ng_z));
+      float m = (1.f + maxc) * rayEpsilon;
+      m = m * std::copysign(1.f, ndotd);
+      rh.ray.org_x += rh.hit.Ng_x * m;
+      rh.ray.org_x += rh.hit.Ng_y * m;
+      rh.ray.org_x += rh.hit.Ng_z * m;
+
       // Setup ray for an occlusion query:
       // point ray at light:
       float dx = light.x - rh.ray.org_x;
@@ -269,7 +282,7 @@ std::vector<embree_utils::TraceResult> renderEmbree(const SceneRef& data, embree
       rh.ray.dir_x = dx * norm;
       rh.ray.dir_y = dy * norm;
       rh.ray.dir_z = dz * norm;
-      rh.ray.tnear = data.shadowRayOffset;
+      rh.ray.tnear = 0.f;
       rh.ray.tfar = d;
     } else {
       rh.ray.tfar = -std::numeric_limits<float>::infinity();
@@ -319,8 +332,9 @@ void pathTrace(const SceneRef& sceneRef,
   Vec3fa color(0.f, 0.f, 0.f);
 
   for (auto i = 0u; i < scene.pathTrace->maxPathLength; ++i) {
+    offsetRay(hit.r, hit.normal); // offset rays to avoid self intersection.
     // Reset ray limits for next bounce:
-    hit.r.tMin = sceneRef.shadowRayOffset; // offset rays to avoid self intersection.
+    hit.r.tMin = 0.f;
     hit.r.tMax = std::numeric_limits<float>::infinity();
     auto intersected = bvh.intersect(hit.r, primLookupFunc);
 
@@ -354,8 +368,8 @@ void pathTrace(const SceneRef& sceneRef,
         float u1;
         #pragma omp critical(sample)
         { u1 = scene.pathTrace->sampler.uniform_0_1(); }
-        bool refracted;
-        std::tie(hit.r.direction, refracted) = dielectric(hit.r, hit.normal, material.ior, u1);
+        const auto [dir, refracted] = dielectric(hit.r, hit.normal, material.ior, u1);
+        hit.r.direction = dir;
         if (refracted) { throughput *= material.albedo; }
       } else {
         // Mark an error:
@@ -430,7 +444,7 @@ std::vector<embree_utils::TraceResult> renderCPU(
     for (auto itr = rayStream.begin(); itr != rayStream.end(); ++itr) {
       traceShadowRay(
         bvh,
-        sceneRef.matIDs, sceneRef.materials, sceneRef.shadowRayOffset,
+        sceneRef.matIDs, sceneRef.materials,
         .05f, // ambient light factor
         *itr, primLookup, lightPos);
     }
@@ -513,7 +527,6 @@ void addOptions(boost::program_options::options_description& desc) {
                 "If no mesh file is specified the scene defaults to an built-in Cornell box scene.")
   ("box-only", po::bool_switch()->default_value(false), "If rendering the built-in scene only render the original Cornell box without extra elements.")
   ("visualise", po::value<std::string>()->default_value("rgb"), "Choose the render output values to test/visualise. One of [rgb, normal, hitpoint, tfar, color, id]")
-  ("ray-epsilon", po::value<float>()->default_value(0.0035f), "Offset used when spawning rays to avoid self intersection (same offset applied for Embree, CPU, and IPU).")
   ("render-mode", po::value<std::string>()->default_value("path-trace"), "Choose type of render from [shadow-trace, path-trace]. To see result set visualise=rgb")
   ("max-path-length", po::value<std::uint32_t>()->default_value(12), "Max path length for path tracing.")
   ("roulette-start-depth", po::value<std::uint32_t>()->default_value(5), "Path length after which rays can be randomly terminated with prob. inversely proportional to their throughput.")
@@ -711,7 +724,6 @@ int main(int argc, char** argv) {
   const auto imageHeight = args["height"].as<std::int32_t>();
   const auto cropFmt = args["crop"].as<std::string>();
   const std::string outPrefix = "out_" + visModeStr + "_";
-  scene.shadowRayOffset = args["ray-epsilon"].as<float>();
 
   // Get cropped window size:
   auto crop = parseCropString(cropFmt);
@@ -728,7 +740,6 @@ int main(int argc, char** argv) {
     ConstArrayRef(data.materials),
     ConstArrayRef(data.bvhNodes),
     maxDepth,
-    scene.shadowRayOffset,
     rngSeed,
     (float)imageWidth,
     (float)imageHeight,

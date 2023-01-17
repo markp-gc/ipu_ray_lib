@@ -21,13 +21,23 @@ void updateHit(const Intersection& i, embree_utils::HitRecord& hit) {
   hit.normal = i.prim->normal(i, hit.r.origin);
 }
 
+// Calculate a new position to spawn a ray from. The new position is offset
+// (along normal) in order to avoid self intersections. The offset depends
+// on the magnitude of the world position of the ray to avoid tuning a
+// per scene fixed ray epsilon. (The input ray should be in world coords).
+inline
+void offsetRay(embree_utils::Ray& r, const embree_utils::Vec3fa& n) {
+  float m = (1.f + r.origin.abs().maxc()) * rayEpsilon;
+  m = m * std::copysign(1.f, n.dot(r.direction));
+  r.origin += (n * m);
+}
+
 /// Templated on the callback that can lookup a Primitive
 /// from its geom and prim IDs.
 template <class T>
 void traceShadowRay(const CompactBvh& bvh,
                     const ConstArrayRef<std::uint32_t>& matIDs,
                     const ConstArrayRef<Material>& materials,
-                    float shadowRayOffset,
                     float ambient,
                     embree_utils::TraceResult& result,
                     T& primLookupFunc,
@@ -43,9 +53,12 @@ void traceShadowRay(const CompactBvh& bvh,
     auto shadowRay = hit.r;
     auto lightOffset = lightWorldPos - shadowRay.origin;
     shadowRay.direction = lightOffset.normalized();
+
+    offsetRay(shadowRay, hit.normal); // offset rays to avoid self intersection.
+    // Reset ray limits for shadow bounce:
+    shadowRay.tMin = 0.f;
     shadowRay.tMax = std::sqrt(lightOffset.squaredNorm());
 
-    shadowRay.tMin = shadowRayOffset;
     auto matRgb = material.albedo;
     auto color = matRgb * ambient;
     // Occlusion test is more efficient than intersect for casting shadow rays:

@@ -54,7 +54,6 @@ struct SceneRef {
   ConstArrayRef<Material> materials;
   ConstArrayRef<CompactBVH2Node> bvhNodes;
   std::uint32_t maxLeafDepth; // Max depth of BVH tree: i.e. size of stack required for traversal.
-  float shadowRayOffset;
   std::uint64_t rngSeed;
   float imageWidth;
   float imageHeight;

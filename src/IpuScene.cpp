@@ -286,7 +286,6 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
     computeGraph.connect(rayTraceVertex["materials"], sceneDataVars["materials"][t]);
     computeGraph.connect(rayTraceVertex["bvhNodes"], sceneDataVars["bvhNodes"][t]);
     computeGraph.setInitialValue(rayTraceVertex["maxLeafDepth"], data.maxLeafDepth);
-    computeGraph.setInitialValue(rayTraceVertex["rayOffset"], data.shadowRayOffset);
 
     // Set tile mappings:
     for (auto& p : sceneDataVars) {

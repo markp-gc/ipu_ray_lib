@@ -23,6 +23,8 @@ static constexpr float gamma(int i) {
   return ni / (1 - ni);
 }
 
+static constexpr float rayEpsilon = machineEpsilon * 1500.f;
+
 inline
 half nextHalfUp(half h) {
   static_assert(sizeof(std::uint16_t) == sizeof(half), "Eigen half badly sized.");
