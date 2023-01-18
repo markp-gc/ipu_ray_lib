@@ -9,12 +9,6 @@
 #include "Scene.hpp"
 #include "Primitives.hpp"
 
-#include <poplar/CSRFunctions.hpp>
-#include <popops/Loop.hpp>
-#include <popops/ElementWise.hpp>
-#include <popops/codelets.hpp>
-#include <gcl/TileAllocation.hpp>
-
 // IPU ray-tracing graph program builder. The program is designed to
 // be comaptible with an Embree/CPU based ray/path tracer for easy
 // reference and comparison.

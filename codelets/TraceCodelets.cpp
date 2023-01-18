@@ -1,5 +1,7 @@
 // Copyright (c) 2022 Graphcore Ltd. All rights reserved.
 
+// This file contains IPU compute codelets (kernels) for ray/path-tracing.
+
 #include <poplar/Vertex.hpp>
 #include <poplar/HalfFloat.hpp>
 #include <poplar/StackSizeDefs.hpp>

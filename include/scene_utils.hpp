@@ -1,7 +1,6 @@
 // Copyright (c) 2022 Graphcore Ltd. All rights reserved.
 
 // This file contains functionality for loading and building scenes from meshes and other primitives.
-// TODO: Sanitise this so everything comes from external standard file formats: currently it is a mish-mash.
 
 #pragma once
 

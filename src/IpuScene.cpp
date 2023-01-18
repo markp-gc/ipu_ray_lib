@@ -2,12 +2,18 @@
 
 #include <IpuScene.hpp>
 
+#include <poplar/CSRFunctions.hpp>
+#include <popops/Loop.hpp>
+#include <popops/ElementWise.hpp>
+#include <popops/codelets.hpp>
+#include <gcl/TileAllocation.hpp>
 #include <popops/Loop.hpp>
 #include <poprand/RandomGen.hpp>
 #include <poprand/codelets.hpp>
 
-#include <vector>
 #include <xoshiro.hpp>
+
+#include <vector>
 
 poplar::program::Sequence IpuScene::fpSetupProg(poplar::Graph& graph) const {
   poplar::program::Sequence prog;
@@ -143,7 +149,7 @@ void IpuScene::createComputeVars(poplar::Graph& computeGraph,
 
   // The scene data vars get uploaded once by the host and then broadcast to every
   // tile so we store them in a separate map.
-  // Todo: this should be one monolithic data structure encoded in a single byte tensor.
+  // TODO: this should be one monolithic data structure encoded in a single byte tensor.
   // (This will allow us to naturally extend the renderer to allow chunks of BVH and associated
   // data to be loaded piece by piece and for rays to be sorted and sent to tiles that already
   // contain the BVH chunk the rays are traversing next). For now having the separate tensors
@@ -426,7 +432,7 @@ void IpuScene::execute(poplar::Engine& engine, const poplar::Device& device) {
   std::uint32_t numBatchesPerReplica = rayBatches.size() / numReplicas;
   loopLimit.connectWriteStream(engine, &numBatchesPerReplica);
 
-  // Set a different RNG seed pre replica:
+  // Set a different RNG seed per-replica:
   xoshiro::State s;
   xoshiro::seed(s, data.rngSeed);
   for (auto r = 0u; r < numReplicas; ++r) {

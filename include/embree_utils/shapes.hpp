@@ -1,6 +1,6 @@
 // Copyright (c) 2022 Graphcore Ltd. All rights reserved.
 
-// This file contains utility functions for creating and attatching basic primitives to an Embree scene.
+// This file contains utility functions for creating and attaching basic primitives to an Embree scene.
 
 #pragma once
 

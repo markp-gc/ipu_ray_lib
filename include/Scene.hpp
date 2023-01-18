@@ -1,6 +1,6 @@
 // Copyright (c) 2022 Graphcore Ltd. All rights reserved.
 
-// Utility structures to ease movement of data and parameters.
+// Utility structures to ease movement of scene data and parameters.
 // TODO: Needs sanitising and de-duplication.
 
 #pragma once
