@@ -59,20 +59,6 @@ void scaleRgb(std::vector<embree_utils::TraceResult>& rayStream, float scale) {
   }
 }
 
-std::map<std::string, VisualiseMode> visStrMap = {
-  {"rgb", RGB},
-  {"normal", NORMAL},
-  {"hitpoint", HIT_POINT},
-  {"tfar", RAY_TFAR},
-  {"color", MAT_COLOR},
-  {"id", GEOM_AND_PRIM_ID}
-};
-
-std::map<std::string, RenderMode> renderStrMap = {
-  {"shadow-trace", SHADOW_TRACE},
-  {"path-trace", PATH_TRACE}
-};
-
 unsigned visualiseHits(const std::vector<embree_utils::TraceResult>& rayStream, const SceneRef& data, cv::Mat& image, VisualiseMode mode) {
   // Note: Remember OpenCV is BGR by default when modifying these functions:
   auto rgbFunc = [&](const embree_utils::TraceResult& tr) {
@@ -212,34 +198,6 @@ void setupLogging(const boost::program_options::variables_map& args) {
     throw std::runtime_error(ss.str());
   }
   spdlog::set_pattern("[%H:%M:%S.%f] [%L] [%t] %v");
-}
-
-boost::program_options::variables_map parseOptions(int argc, char** argv, boost::program_options::options_description& desc) {
-  namespace po = boost::program_options;
-
-  po::variables_map vm;
-  po::store(po::parse_command_line(argc, argv, desc), vm);
-  if (vm.count("help")) {
-    std::cout << desc << "\n";
-    throw std::runtime_error("Show help");
-  }
-
-  try {
-    const auto str = vm.at("visualise").as<std::string>();
-    const auto v = visStrMap.at(str);
-  } catch (const std::exception& e) {
-    throw po::validation_error(po::validation_error::invalid_option_value, "visualise");
-  }
-
-  try {
-    const auto str = vm.at("render-mode").as<std::string>();
-    const auto v = renderStrMap.at(str);
-  } catch (const std::exception& e) {
-    throw po::validation_error(po::validation_error::invalid_option_value, "render-mode");
-  }
-
-  po::notify(vm);
-  return vm;
 }
 
 std::optional<CropWindow> parseCropString(const std::string& cropFmt) {

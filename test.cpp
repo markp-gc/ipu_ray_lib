@@ -4,20 +4,6 @@
 
 #include <app_utils.hpp>
 
-std::map<std::string, VisualiseMode> visStrMap = {
-  {"rgb", RGB},
-  {"normal", NORMAL},
-  {"hitpoint", HIT_POINT},
-  {"tfar", RAY_TFAR},
-  {"color", MAT_COLOR},
-  {"id", GEOM_AND_PRIM_ID}
-};
-
-std::map<std::string, RenderMode> renderStrMap = {
-  {"shadow-trace", SHADOW_TRACE},
-  {"path-trace", PATH_TRACE}
-};
-
 std::vector<embree_utils::TraceResult> renderEmbree(const SceneRef& data, embree_utils::EmbreeScene& embreeScene, cv::Mat& image) {
   std::vector<embree_utils::TraceResult> rayStream(data.window.w * data.window.h);
   initPerspectiveRayStream(rayStream, image, data.window, data.fovRadians);
@@ -336,6 +322,49 @@ void addOptions(boost::program_options::options_description& desc) {
   ("ipu-only", po::bool_switch()->default_value(false), "Only render on IPU (e.g. if you don't want to wait for slow CPU path tracing).")
   ("log-level", po::value<std::string>()->default_value("info"),
   "Set the log level to one of the following: 'trace', 'debug', 'info', 'warn', 'err', 'critical', 'off'.");
+}
+
+std::map<std::string, VisualiseMode> visStrMap = {
+  {"rgb", RGB},
+  {"normal", NORMAL},
+  {"hitpoint", HIT_POINT},
+  {"tfar", RAY_TFAR},
+  {"color", MAT_COLOR},
+  {"id", GEOM_AND_PRIM_ID}
+};
+
+std::map<std::string, RenderMode> renderStrMap = {
+  {"shadow-trace", SHADOW_TRACE},
+  {"path-trace", PATH_TRACE}
+};
+
+boost::program_options::variables_map parseOptions(int argc, char** argv, boost::program_options::options_description& desc) {
+  namespace po = boost::program_options;
+
+  po::variables_map vm;
+  po::store(po::parse_command_line(argc, argv, desc), vm);
+  if (vm.count("help")) {
+    std::cout << desc << "\n";
+    throw std::runtime_error("Show help");
+  }
+
+  try {
+    const auto str = vm.at("visualise").as<std::string>();
+    const auto v = visStrMap.at(str);
+  } catch (const std::exception& e) {
+    throw po::validation_error(po::validation_error::invalid_option_value, "visualise");
+  }
+
+  try {
+    const auto str = vm.at("render-mode").as<std::string>();
+    const auto v = renderStrMap.at(str);
+  } catch (const std::exception& e) {
+    throw po::validation_error(po::validation_error::invalid_option_value, "render-mode");
+  }
+
+
+  po::notify(vm);
+  return vm;
 }
 
 int main(int argc, char** argv) {
