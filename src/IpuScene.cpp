@@ -146,6 +146,7 @@ void IpuScene::createComputeVars(poplar::Graph& computeGraph,
   matIDsVar.buildTensor(computeGraph, poplar::UNSIGNED_INT, {numComputeTiles, data.matIDs.size()});
   materialsVar.buildTensor(computeGraph, poplar::UNSIGNED_CHAR, {numComputeTiles, data.materials.size() * sizeof(Material)});
   bvhNodesVar.buildTensor(computeGraph, poplar::UNSIGNED_CHAR, {numComputeTiles, data.bvhNodes.size() * sizeof(CompactBVH2Node)});
+  samplesPerPixel.buildTensor(computeGraph, poplar::UNSIGNED_INT, {numComputeTiles, 1u});
 
   // The scene data vars get uploaded once by the host and then broadcast to every
   // tile so we store them in a separate map.
@@ -167,6 +168,7 @@ void IpuScene::createComputeVars(poplar::Graph& computeGraph,
     {"meshes", computeGraph.addVariable(poplar::UNSIGNED_CHAR,
                                         {numComputeTiles, data.meshInfo.size() * sizeof(CompiledTriangleMesh)},
                                         "tri_meshes")},
+    {"samplesPerPixel", samplesPerPixel.get()}
   };
 
   // Ray trace vars are distributed across tiles:
@@ -236,7 +238,6 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
 
   // Compute sets:
   auto initCs = computeGraph.addComputeSet("init_data_cs");
-  auto rayGenCs = computeGraph.addComputeSet("raygen_cs");
   auto traceCs = computeGraph.addComputeSet("trace_cs");
 
   for (auto t = 0u; t < numComputeTiles; ++t) {
@@ -253,22 +254,18 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
     computeGraph.connect(initBuildVertex["verts"], sceneDataVars["verts"][t]);
     computeGraph.connect(initBuildVertex["meshes"], sceneDataVars["meshes"][t]);
 
-    // Ray generation:
-    auto rayGenVertex = computeGraph.addVertex(rayGenCs, "SampleCameraRays");
-    computeGraph.setTileMapping(rayGenVertex, t);
-    computeGraph.connect(rayGenVertex["rays"], rayTraceVars["rays"][t]);
-    computeGraph.setInitialValue(rayGenVertex["imageWidth"], data.imageWidth);
-    computeGraph.setInitialValue(rayGenVertex["imageHeight"], data.imageHeight);
-    computeGraph.setInitialValue(rayGenVertex["fovRadians"], data.fovRadians);
-
     // Ray tracing:
     // Choose between two ray trace modes at compile time.
     poplar::VertexRef rayTraceVertex;
     if (data.pathTrace) {
       rayTraceVertex = computeGraph.addVertex(traceCs, "PathTrace");
-      computeGraph.setInitialValue(rayGenVertex["antiAliasScale"], .25f);
       computeGraph.setInitialValue(rayTraceVertex["maxPathLength"], data.maxPathLength);
       computeGraph.setInitialValue(rayTraceVertex["rouletteStartDepth"], data.rouletteStartDepth);
+      computeGraph.setInitialValue(rayTraceVertex["imageWidth"], data.imageWidth);
+      computeGraph.setInitialValue(rayTraceVertex["imageHeight"], data.imageHeight);
+      computeGraph.setInitialValue(rayTraceVertex["antiAliasScale"], .25f);
+      computeGraph.setInitialValue(rayTraceVertex["fovRadians"], data.fovRadians);
+      computeGraph.connect(rayTraceVertex["samplesPerPixel"], samplesPerPixel.get()[t][0]);
     } else {
       rayTraceVertex = computeGraph.addVertex(traceCs, "ShadowTrace");
       computeGraph.setInitialValue(rayTraceVertex["ambientLightFactor"], .05f);
@@ -276,7 +273,6 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
       auto lp = computeGraph.addConstant(poplar::FLOAT, {3}, &lightPos.x);
       computeGraph.setTileMapping(lp, t);
       computeGraph.connect(rayTraceVertex["lightPos"], lp);
-      computeGraph.setInitialValue(rayGenVertex["antiAliasScale"], 0.f);
     }
 
     computeGraph.connect(rayTraceVertex["rays"], rayTraceVars["rays"][t]);
@@ -323,6 +319,7 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
     matIDsVar.buildSlicedWrite(computeGraph, 0, optimiseMemUse),
     materialsVar.buildSlicedWrite(computeGraph, 0, optimiseMemUse),
     bvhNodesVar.buildSlicedWrite(computeGraph, 0, optimiseMemUse),
+    samplesPerPixel.buildSlicedWrite(computeGraph, 0, optimiseMemUse),
     broadcastSceneData
   };
 
@@ -337,12 +334,13 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
   init.add(poplar::program::Execute({initCs}));
 
   // Program to initialise the I/O pipeline loop counter:
-  poplar::program::Sequence initLoopCounter {
+  poplar::program::Sequence initLoopCounters {
     loopLimit.buildWrite(ioGraph, optimiseMemUse)
   };
+
   // Adjust loop limit for async I/O pipeline:
-  popops::subInPlace(ioGraph, loopLimit, 2u, initLoopCounter, "loop_limit_init");
-  init.add(initLoopCounter);
+  popops::subInPlace(ioGraph, loopLimit, 2u, initLoopCounters, "loop_limit_init");
+  init.add(initLoopCounters);
 
   // Make our own loop (instead of e.g. using countedForLoop) so we can ensure asynchronous I/O:
   ioGraph.setInitialValue(saveIndex, 0u);
@@ -356,22 +354,9 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
   poplar::Tensor pred = popops::sub(ioGraph, loopLimit.get(), saveIndex, cond, "calc_loop_condition");
   cond.add(poplar::program::AssumeEqualAcrossReplicas(pred, "pred_assume_equal"));
 
-  auto rayTraceBody = poplar::program::Sequence{
-    poplar::program::Execute(rayGenCs),
+  poplar::program::Sequence rayTraceBody {
     poplar::program::Execute(traceCs)
   };
-
-  poplar::program::Sequence doSampling;
-  if (data.pathTrace) {
-    // For path tracing we need to make an additional inner loop:
-    ipu_utils::logger()->debug("Sampling loop iterations {}", data.samplesPerPixel);
-    doSampling = popops::countedLoop(computeGraph, data.samplesPerPixel, [&](const poplar::Tensor&) {
-      return rayTraceBody;
-    }, "sampling_loop");
-  } else {
-    // For single pass render we just execute the body once:
-    doSampling = rayTraceBody;
-  }
 
   // Main loop should read and write DRAM
   // asynchronously with compute:
@@ -382,18 +367,19 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
     incLoadIndex,
     //poplar::program::PrintTensor("load idx: ", loadIndex),
     loadRaysFromDRAM,
-    doSampling,
+    rayTraceBody,
     copyRaysComputeToIO,
     copyRaysIOToCompute
   };
 
+  // This is the main loop over ray-batches:
   auto traceLoop = poplar::program::RepeatWhileTrue(cond, pred, traceBody, "trace_loop");
 
   poplar::program::Sequence pipeline {
     //poplar::program::PrintTensor("load idx: ", loadIndex),
     loadRaysFromDRAM,
     copyRaysIOToCompute,
-    doSampling,
+    rayTraceBody,
     incLoadIndex,
     //poplar::program::PrintTensor("load idx: ", loadIndex),
     loadRaysFromDRAM,
@@ -403,7 +389,7 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
     //poplar::program::PrintTensor("save idx: ", saveIndex),
     saveRaysToDRAM,
     incSaveIndex,
-    doSampling,
+    rayTraceBody,
     copyRaysComputeToIO,
     //poplar::program::PrintTensor("save idx: ", saveIndex),
     saveRaysToDRAM,
@@ -431,6 +417,7 @@ void IpuScene::execute(poplar::Engine& engine, const poplar::Device& device) {
   auto rayBatches = createRayBatches(device, numComputeTiles);
   std::uint32_t numBatchesPerReplica = rayBatches.size() / numReplicas;
   loopLimit.connectWriteStream(engine, &numBatchesPerReplica);
+  samplesPerPixel.connectWriteStream(engine, &data.samplesPerPixel);
 
   // Set a different RNG seed per-replica:
   xoshiro::State s;

@@ -120,40 +120,29 @@ const Primitive* getPrimitive(
   }
 }
 
-class SampleCameraRays : public MultiVertex {
-public:
-  // Ray stream:
-  InOut<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(TraceResult)>> rays;
-  float imageWidth;
-  float imageHeight;
-  float antiAliasScale;
-  float fovRadians;
+void sampleCameraRays(int workerID,
+                      float imageWidth, float imageHeight,
+                      float2 antiAliasScale, float fovRadians,
+                      ArrayRef<embree_utils::TraceResult>& wrappedRays) {
+  // Do trig outside of loop:
+  float s, c;
+  sincos(fovRadians / 2.f, s, c);
+  const auto fovTanTheta = s / c;
+  const auto rayOrigin = embree_utils::Vec3fa(0.f, 0.f, 0.f);
 
-  bool compute(unsigned int workerID) {
-    auto wrappedRays = ArrayRef<embree_utils::TraceResult>::reinterpret(&rays[0], rays.size());
-    const auto rayOrigin = embree_utils::Vec3fa(0, 0, 0);
-
-    // Do trig outside of loop:
-    float s, c;
-    sincos(fovRadians / 2.f, s, c);
-    const auto fovTanTheta = s / c;
-
-    // Generate camera rays. Each worker starts processing offset by their worker IDs.
-    // The external Poplar graph construction code ensures the number of rays to process on each
-    // tile is a multiple of 6 (by padding or otherwise):
-    for (auto r = workerID; r < wrappedRays.size(); r += numWorkers()) {
-      auto& result = wrappedRays[r];
-      // Sample around the pixel coord in the ray stream (anti-aliasing):
-      float2 g = __builtin_ipu_f32v2grand();
-      float2 p = {result.p.u, result.p.v}; // row, col
-      p += float2{antiAliasScale, antiAliasScale} * g;
-      const auto rayDir = pixelToRayDir(p[1], p[0], imageWidth, imageHeight, fovTanTheta);
-      result.h = embree_utils::HitRecord(rayOrigin, rayDir);
-    }
-
-    return true;
+  // Generate camera rays. Each worker starts processing offset by their worker IDs.
+  // The external Poplar graph construction code ensures the number of rays to process on each
+  // tile is a multiple of 6 (by padding or otherwise):
+  for (auto r = workerID; r < wrappedRays.size(); r += poplar::MultiVertex::numWorkers()) {
+    auto& result = wrappedRays[r];
+    // Sample around the pixel coord in the ray stream (anti-aliasing):
+    float2 g = __builtin_ipu_f32v2grand();
+    float2 p = {result.p.u, result.p.v}; // row, col
+    p += antiAliasScale * g;
+    const auto rayDir = pixelToRayDir(p[1], p[0], imageWidth, imageHeight, fovTanTheta);
+    result.h = embree_utils::HitRecord(rayOrigin, rayDir);
   }
-};
+}
 
 /// Simple uni-directional path trace vertex. Rays are path traced one by one
 /// alternating BVH intersection and BxDF sampling to produce the incoming ray
@@ -179,10 +168,14 @@ public:
   Input<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(CompactBVH2Node)>> bvhNodes;
 
   // Max depth needed for the BVH traversal stack:
+  Input<std::uint32_t> samplesPerPixel;
   std::uint32_t maxLeafDepth;
   std::uint32_t maxPathLength;
   std::uint32_t rouletteStartDepth;
-  float rayOffset;
+  float imageWidth;
+  float imageHeight;
+  float antiAliasScale;
+  float fovRadians;
 
   // Ray stream:
   InOut<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(TraceResult)>> rays;
@@ -206,66 +199,74 @@ public:
       return getPrimitive(geom, wrappedSpheres, wrappedMeshes, wrappedDiscs);
     };
 
-    // Intersect all rays against the BVH. Each worker starts processing offset by their worker IDs.
-    // The external Poplar graph construction code ensures the number of rays to process on each
-    // tile is a multiple of 6 (by padding or otherwise):
-    for (auto r = workerID; r < wrappedRays.size(); r += numWorkers()) {
-      auto& result = wrappedRays[r];
-      auto& hit = result.h;
-      Vec3fa throughput(1.f, 1.f, 1.f);
-      Vec3fa color(0.f, 0.f, 0.f);
+    for (auto s = 0u; s < samplesPerPixel; ++s) {
+      // Generate ray samples:
+      sampleCameraRays(workerID, imageWidth, imageHeight,
+                       float2{antiAliasScale, antiAliasScale},
+                       fovRadians, wrappedRays);
 
-      for (auto i = 0u; i < maxPathLength; ++i) {
-        offsetRay(hit.r, hit.normal); // offset rays to avoid self intersection.
-        // Reset ray limits for next bounce:
-        hit.r.tMin = 0.f;
-        hit.r.tMax = std::numeric_limits<float>::infinity();
-        auto intersected = bvh.intersect(hit.r, primLookup);
+      // Intersect all rays against the BVH. Each worker starts processing offset by their worker IDs.
+      // The external Poplar graph construction code ensures the number of rays to process on each
+      // tile is a multiple of 6 (by padding or otherwise):
+      for (auto r = workerID; r < wrappedRays.size(); r += numWorkers()) {
+        auto& result = wrappedRays[r];
+        auto& hit = result.h;
+        Vec3fa throughput(1.f, 1.f, 1.f);
+        Vec3fa color(0.f, 0.f, 0.f);
 
-        if (intersected) {
-          updateHit(intersected, hit);
-          const auto& material = wrappedMaterials[wrappedMatIDs[hit.geomID]];
+        for (auto i = 0u; i < maxPathLength; ++i) {
+          offsetRay(hit.r, hit.normal); // offset rays to avoid self intersection.
+          // Reset ray limits for next bounce:
+          hit.r.tMin = 0.f;
+          hit.r.tMax = std::numeric_limits<float>::infinity();
+          auto intersected = bvh.intersect(hit.r, primLookup);
 
-          if (material.emissive) {
-            color += throughput * material.emission;
-          }
+          if (intersected) {
+            updateHit(intersected, hit);
+            const auto& material = wrappedMaterials[wrappedMatIDs[hit.geomID]];
 
-          if (material.type == Material::Type::Diffuse) {
-            // Use HW random number generator for samples:
-            const float u1 = hw_uniform_0_1();
-            const float u2 = hw_uniform_0_1();
-            hit.r.direction = sampleDiffuse(hit.normal, u1, u2);
-            // Update throughput
-            //const float w = std::abs(wiWorld.dot(normal));
-            //const float pdf = cosineHemispherePdf(wiTangent);
-            // The terms w / (Pi * pdf) all cancel for diffuse throughput:
-            throughput *= material.albedo; // * (w / (Pi * pdf)); // PDF terms cancel for cosine weighted samples
-            //throughput *= material.albedo * (wiTangent.z * 2.f); // Apply PDF for hemisphere samples (sampleDir is in tangent space so cos(theta) == z-coord).
-          } else if (material.type == Material::Type::Specular) {
-            hit.r.direction = reflect(hit.r.direction, hit.normal);
-            throughput *= material.albedo;
-          } else if (material.type == Material::Type::Refractive) {
-            const float u1 = hw_uniform_0_1();
-            const auto [dir, refracted] = dielectric(hit.r, hit.normal, material.ior, u1);
-            hit.r.direction = dir;
-            if (refracted) { throughput *= material.albedo; }
+            if (material.emissive) {
+              color += throughput * material.emission;
+            }
+
+            if (material.type == Material::Type::Diffuse) {
+              // Use HW random number generator for samples:
+              const float u1 = hw_uniform_0_1();
+              const float u2 = hw_uniform_0_1();
+              hit.r.direction = sampleDiffuse(hit.normal, u1, u2);
+              // Update throughput
+              //const float w = std::abs(wiWorld.dot(normal));
+              //const float pdf = cosineHemispherePdf(wiTangent);
+              // The terms w / (Pi * pdf) all cancel for diffuse throughput:
+              throughput *= material.albedo; // * (w / (Pi * pdf)); // PDF terms cancel for cosine weighted samples
+              //throughput *= material.albedo * (wiTangent.z * 2.f); // Apply PDF for hemisphere samples (sampleDir is in tangent space so cos(theta) == z-coord).
+            } else if (material.type == Material::Type::Specular) {
+              hit.r.direction = reflect(hit.r.direction, hit.normal);
+              throughput *= material.albedo;
+            } else if (material.type == Material::Type::Refractive) {
+              const float u1 = hw_uniform_0_1();
+              const auto [dir, refracted] = dielectric(hit.r, hit.normal, material.ior, u1);
+              hit.r.direction = dir;
+              if (refracted) { throughput *= material.albedo; }
+            } else {
+              // Mark an error:
+              result.rgb *= std::numeric_limits<float>::quiet_NaN();
+            }
           } else {
-            // Mark an error:
-            result.rgb *= std::numeric_limits<float>::quiet_NaN();
+            break;
           }
-        } else {
-          break;
+
+          // Random stopping:
+          if (i > rouletteStartDepth) {
+            const float u1 = hw_uniform_0_1();
+            if (evaluateRoulette(u1, throughput)) { break; }
+          }
         }
 
-        // Random stopping:
-        if (i > rouletteStartDepth) {
-          const float u1 = hw_uniform_0_1();
-          if (evaluateRoulette(u1, throughput)) { break; }
-        }
+        result.rgb += color;
       }
 
-      result.rgb += color;
-    }
+    } // end of sample loop
 
     return true;
   }
@@ -322,6 +323,9 @@ public:
     };
 
     Vec3fa lp(lightPos[0], lightPos[1], lightPos[2]);
+
+    // There is no need for ray gen in this vertex since we are tracibg rays
+    // that were generated on the host.
 
     // Intersect all rays against the BVH. Each worker starts processing offset by their worker IDs.
     // The external Poplar graph construction code ensures the number of rays to process on each

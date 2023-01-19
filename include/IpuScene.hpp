@@ -21,6 +21,7 @@ class IpuScene : public ipu_utils::BuilderInterface {
   std::vector<std::uint64_t> seedValues;
   ipu_utils::StreamableTensor seedTensor;
   ipu_utils::StreamableTensor loopLimit;
+  ipu_utils::StreamableTensor samplesPerPixel;
 
   // Variables to hold the primitive data:
   ipu_utils::StreamableTensor geometryVar;
@@ -69,6 +70,7 @@ public:
       rayStream(results),
       seedTensor("hw_rng_seed"),
       loopLimit("loop_limit"),
+      samplesPerPixel("samples_per_pixel"),
       geometryVar("geom_data"),
       spheresVar("sphere_data"),
       discsVar("disc_data"),
