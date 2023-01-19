@@ -5,6 +5,7 @@
 #pragma once
 
 #include "geometry.hpp"
+#include "shapes.hpp"
 
 namespace {
 

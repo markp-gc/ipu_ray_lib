@@ -8,6 +8,7 @@
 #include <Primitives.hpp>
 #include <CompactBvh.hpp>
 #include <Material.hpp>
+#include <Render.hpp>
 
 /// Update the hit record with intersection info, advance ray to hit
 /// point, and return a pointer to the primitive that was hit.
