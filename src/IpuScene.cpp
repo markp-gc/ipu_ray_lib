@@ -59,6 +59,35 @@ std::size_t IpuScene::calcNumBatches(const poplar::Target& target, std::size_t n
   return batchCounter;
 }
 
+class ProgressCallback : public poplar::StreamCallback {
+public:
+  ProgressCallback(std::uint32_t index) : replicaIndex(index), progress(0) {};
+
+  void fetch(void *p) {
+    std::memcpy(&progress, p, 2 * sizeof(std::uint32_t));
+    limit += 2; // IPU only reports pipeline inner loop index which is 2 short.
+  }
+
+  poplar::StreamCallback::Result prefetch(void* p) {
+    fetch(p);
+    return poplar::StreamCallback::Result::Success;
+  }
+
+  void complete() {
+    // All replicas are perfectly in sync so only log progress of first one:
+    if (replicaIndex == 0) {
+      ipu_utils::logger()->info("Ray-batches finished: {}/{}", progress, limit);
+    }
+  }
+
+  void invalidatePrefetched() {}
+
+private:
+  const std::uint32_t replicaIndex;
+  std::uint32_t progress;
+  std::uint32_t limit;
+};
+
 std::vector<std::vector<embree_utils::TraceResult>>
 IpuScene::createRayBatches(const poplar::Device& device, std::size_t numComputeTiles) const {
   std::vector<std::vector<embree_utils::TraceResult>> rayBatches;
@@ -234,7 +263,13 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
   auto loadRaysFromDRAM = poplar::program::Copy(rayBuffer, loadBuffer, loadIndex, "load_rays");
   auto copyRaysIOToCompute = poplar::program::Copy(loadBuffer, rayTraceVars["rays"].flatten());
   auto copyRaysComputeToIO = poplar::program::Copy(rayTraceVars["rays"].flatten(), saveBuffer);
-  auto saveRaysToDRAM   = poplar::program::Copy(saveBuffer, rayBuffer, saveIndex, "save_rays");
+  // Stream the save index back to the host so it can monitor progress:
+  auto progressTensor = poplar::concat(saveIndex.reshape({1}), loopLimit.get().reshape({1})).flatten();
+  auto progressStream = ioGraph.addDeviceToHostFIFO("progress", progressTensor.elementType(), progressTensor.numElements());
+  poplar::program::Sequence saveRaysToDRAM = {
+    poplar::program::Copy(saveBuffer, rayBuffer, saveIndex, "save_rays"),
+    poplar::program::Copy(progressTensor, progressStream, optimiseMemUse) // send progress to host
+  };
 
   // Compute sets:
   auto initCs = computeGraph.addComputeSet("init_data_cs");
@@ -442,6 +477,11 @@ void IpuScene::execute(poplar::Engine& engine, const poplar::Device& device) {
   matIDsVar.connectWriteStream(engine, (void*)data.matIDs.cbegin());
   materialsVar.connectWriteStream(engine, (void*)data.materials.cbegin());
   bvhNodesVar.connectWriteStream(engine, (void*)data.bvhNodes.cbegin());
+
+  // Connect callbacks:
+  for (auto i = 0u; i < numReplicas; ++i) {
+    engine.connectStreamToCallback("progress", i, std::make_unique<ProgressCallback>(i));
+  }
 
   // We don't include sending initial rays to DRAM in timing (they
   // would stay there for the duration of a real render)
