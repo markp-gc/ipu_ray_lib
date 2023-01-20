@@ -69,7 +69,7 @@ public:
   }
 
   poplar::StreamCallback::Result prefetch(void* p) {
-    fetch(p);
+    // This is only for host to device streams (but needs an implementation):
     return poplar::StreamCallback::Result::Success;
   }
 

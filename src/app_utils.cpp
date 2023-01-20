@@ -89,6 +89,9 @@ unsigned visualiseHits(const std::vector<embree_utils::TraceResult>& rayStream, 
   };
   auto colFunc = [&](const embree_utils::TraceResult& tr) {
     const auto& hit = tr.h;
+    if (hit.geomID == embree_utils::HitRecord::InvalidGeomID) {
+      return cv::Vec3f(0.f, 0.f, 0.f);
+    }
     auto id = data.matIDs[hit.geomID];
     auto c = data.materials[id].albedo;
     return cv::Vec3f(c.z, c.y, c.x);
