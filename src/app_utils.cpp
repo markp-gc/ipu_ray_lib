@@ -18,21 +18,20 @@
 
 void initPerspectiveRayStream(std::vector<embree_utils::TraceResult>& rayStream,
                               const cv::Mat& image,
-                              const CropWindow& window,
-                              float fovRadians,
+                              const SceneRef& data,
                               xoshiro::Generator* gen) {
   const auto rayOrigin = embree_utils::Vec3fa(0, 0, 0);
 
   // Do trig outside of loop:
   float s, c;
-  sincos(fovRadians / 2.f, s, c);
+  sincos(data.fovRadians / 2.f, s, c);
   const auto fovTanTheta = s / c;
 
-  std::normal_distribution<float> d{0.f, .25f};
+  std::normal_distribution<float> d{0.f, data.antiAliasScale};
 
   auto i = 0u;
-  for (std::uint32_t r = window.r; r < window.r + window.h; ++r) {
-    for (std::uint32_t c = window.c; c < window.c + window.w; ++c) {
+  for (std::uint32_t r = data.window.r; r < data.window.r + data.window.h; ++r) {
+    for (std::uint32_t c = data.window.c; c < data.window.c + data.window.w; ++c) {
       float pu = r;
       float pv = c;
       if (gen) {

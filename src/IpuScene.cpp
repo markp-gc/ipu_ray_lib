@@ -302,7 +302,7 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
       computeGraph.setInitialValue(rayTraceVertex["rouletteStartDepth"], data.rouletteStartDepth);
       computeGraph.setInitialValue(rayTraceVertex["imageWidth"], data.imageWidth);
       computeGraph.setInitialValue(rayTraceVertex["imageHeight"], data.imageHeight);
-      computeGraph.setInitialValue(rayTraceVertex["antiAliasScale"], .25f);
+      computeGraph.setInitialValue(rayTraceVertex["antiAliasScale"], data.antiAliasScale);
       computeGraph.setInitialValue(rayTraceVertex["fovRadians"], data.fovRadians);
       computeGraph.connect(rayTraceVertex["samplesPerPixel"], samplesPerPixel.get()[t][0]);
     } else {

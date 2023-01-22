@@ -39,8 +39,7 @@ enum RenderMode {
 
 void initPerspectiveRayStream(std::vector<embree_utils::TraceResult>& rayStream,
                               const cv::Mat& image,
-                              const CropWindow& window,
-                              float fovRadians,
+                              const SceneRef& data,
                               xoshiro::Generator* gen = nullptr);
 
 void zeroRgb(std::vector<embree_utils::TraceResult>& rayStream);

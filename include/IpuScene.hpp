@@ -43,10 +43,10 @@ class IpuScene : public ipu_utils::BuilderInterface {
 
   // This is chosen so that the compute tiles can all
   // be serviced by 32 I/O tiles:
-  static constexpr std::size_t maxRaysPerWorker = 6;
   std::uint32_t dramRayBatches;
   double traceTimeSecs;
   std::size_t numComputeTiles;
+  std::size_t maxRaysPerWorker;
 
   poplar::program::Sequence fpSetupProg(poplar::Graph& graph) const;
 
@@ -63,7 +63,8 @@ public:
   IpuScene(const std::vector<Sphere>& _spheres,
            const std::vector<Disc>& _discs,
            SceneRef& sceneRef,
-           std::vector<embree_utils::TraceResult>& results)
+           std::vector<embree_utils::TraceResult>& results,
+           std::size_t raysPerWorker)
     : spheres(_spheres),
       discs(_discs),
       data(sceneRef),
@@ -80,7 +81,8 @@ public:
       matIDsVar("matIDs"),
       materialsVar("materials"),
       bvhNodesVar("bvhNodesVar"),
-      numComputeTiles(0u)
+      numComputeTiles(0u),
+      maxRaysPerWorker(raysPerWorker)
   {}
 
   virtual ~IpuScene() {}

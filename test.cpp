@@ -6,7 +6,7 @@
 
 std::vector<embree_utils::TraceResult> renderEmbree(const SceneRef& data, embree_utils::EmbreeScene& embreeScene, cv::Mat& image) {
   std::vector<embree_utils::TraceResult> rayStream(data.window.w * data.window.h);
-  initPerspectiveRayStream(rayStream, image, data.window, data.fovRadians);
+  initPerspectiveRayStream(rayStream, image, data);
   zeroRgb(rayStream);
 
   embreeScene.commitScene();
@@ -199,7 +199,7 @@ std::vector<embree_utils::TraceResult> renderCPU(
   }
 
   std::vector<embree_utils::TraceResult> rayStream(sceneRef.window.w * sceneRef.window.h);
-  initPerspectiveRayStream(rayStream, image, sceneRef.window, sceneRef.fovRadians);
+  initPerspectiveRayStream(rayStream, image, sceneRef);
   zeroRgb(rayStream);
 
   // Make a CompactBvh object for our custom CPU ray-tracer.
@@ -218,7 +218,7 @@ std::vector<embree_utils::TraceResult> renderCPU(
   if (scene.pathTrace) {
     for (auto s = 0u; s < scene.pathTrace->samplesPerPixel; ++s) {
       // Regenerate new camera rays at each sample step:
-      initPerspectiveRayStream(rayStream, image, sceneRef.window, sceneRef.fovRadians, &scene.pathTrace->sampler);
+      initPerspectiveRayStream(rayStream, image, sceneRef, &scene.pathTrace->sampler);
       #pragma omp parallel for schedule(auto)
       for (auto itr = rayStream.begin(); itr != rayStream.end(); ++itr) {
         pathTrace(sceneRef, scene, bvh, *itr, primLookup);
@@ -256,11 +256,12 @@ std::vector<embree_utils::TraceResult> renderIPU(
   const boost::program_options::variables_map& args)
 {
   std::vector<embree_utils::TraceResult> rayStream(sceneRef.window.w * sceneRef.window.h);
-  initPerspectiveRayStream(rayStream, image, sceneRef.window, sceneRef.fovRadians);
+  initPerspectiveRayStream(rayStream, image, sceneRef);
   zeroRgb(rayStream);
 
   auto ipus = args["ipus"].as<std::uint32_t>();
-  IpuScene ipuScene(spheres, discs, sceneRef, rayStream);
+  auto rpw = args["rays-per-worker"].as<std::size_t>();
+  IpuScene ipuScene(spheres, discs, sceneRef, rayStream, rpw);
   ipuScene.setRuntimeConfig(
     ipu_utils::RuntimeConfig {
       ipus, // numIpus;
@@ -302,11 +303,13 @@ void addOptions(boost::program_options::options_description& desc) {
   desc.add_options()
   ("help", "Show command help.")
   ("ipus", po::value<std::uint32_t>()->default_value(4), "Select number of IPUs (each IPU will be a replica).")
+  ("rays-per-worker", po::value<std::size_t>()->default_value(6), "Set the number of rays processed by each threa din each iteration. Lower values relieve I/O tile memory pressure.")
   ("width,w", po::value<std::int32_t>()->default_value(768), "Set rendered image width.")
   ("height,h", po::value<std::int32_t>()->default_value(432), "Set rendered image height.")
   ("crop", po::value<std::string>()->default_value(""),
    "String describing a window of the image to render. Format is wxh+c+r, "
    "where wxh is the width by height of window and +c+r specifies the column and row offset of the window.")
+  ("anti-alias", po::value<float>()->default_value(.25f), "Width of anti-aliasing noise distribution in pixels.")
   ("mesh-file", po::value<std::string>()->default_value(std::string()),
                 "Mesh file containing a scene to render. Format must be supported by libassimp "
                 "(That library does not handle all formats well even if they are 'supported': "
@@ -512,6 +515,7 @@ int main(int argc, char** argv) {
     (float)imageWidth,
     (float)imageHeight,
     scene.camera.horizontalFov,
+    args["anti-alias"].as<float>(),
     window,
     args["samples"].as<std::uint32_t>(),
     args["max-path-length"].as<std::uint32_t>(),
