@@ -17,7 +17,7 @@ static constexpr float InvPi = 1.0 / doublePi;
 static constexpr float Piby2 = (float)(doublePi / 2.0);
 static constexpr float Piby4 = (float)(doublePi / 4.0);
 
-struct __attribute__ ((aligned (16))) Vec3fa {
+struct __attribute__ ((aligned (8))) Vec3fa {
   Vec3fa() {}
   Vec3fa(float _v) : x(_v), y(_v), z(_v) {}
   Vec3fa(float _x, float _y, float _z) : x(_x), y(_y), z(_z) {}
@@ -202,7 +202,7 @@ struct PixelCoord {
   float v;
 };
 
-struct __attribute__ ((aligned (16))) Ray {
+struct Ray {
   Ray() {}
   Ray(const Vec3fa& o, const Vec3fa& d) :
     origin(o),
@@ -238,9 +238,9 @@ struct HitRecord {
 struct TraceResult {
   TraceResult() {}
   TraceResult(const HitRecord& hit, const PixelCoord& uv) : h(hit), p(uv), rgb(0.f, 0.f, 0.f) {}
-  HitRecord h;
-  embree_utils::PixelCoord p;
   embree_utils::Vec3fa rgb;
+  embree_utils::PixelCoord p;
+  HitRecord h;
 };
 
 } // end namespace embree_utils

@@ -379,6 +379,17 @@ int main(int argc, char** argv) {
     return EXIT_FAILURE;
   }
 
+  ipu_utils::logger()->debug("HitRecord size: {}", sizeof(embree_utils::HitRecord));
+  ipu_utils::logger()->debug("HitRecord align: {}", alignof(embree_utils::HitRecord));
+  ipu_utils::logger()->debug("TraceResult size: {}", sizeof(embree_utils::TraceResult));
+  ipu_utils::logger()->debug("TraceResult align: {}", alignof(embree_utils::TraceResult));
+  ipu_utils::logger()->debug("ComapctBVH2Node size: {}", sizeof(CompactBVH2Node));
+  ipu_utils::logger()->debug("ComapctBVH2Node align: {}", alignof(CompactBVH2Node));
+  ipu_utils::logger()->debug("Ray size: {}", sizeof(embree_utils::Ray));
+  ipu_utils::logger()->debug("Ray align: {}", alignof(embree_utils::Ray));
+  ipu_utils::logger()->debug("RayShearParams size: {}", sizeof(RayShearParams));
+  ipu_utils::logger()->debug("RayShearParams align: {}", alignof(RayShearParams));
+
   // Create the high level scene description:
   auto meshFile = args["mesh-file"].as<std::string>();
 

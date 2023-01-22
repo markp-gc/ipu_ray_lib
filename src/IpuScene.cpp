@@ -59,6 +59,10 @@ std::size_t IpuScene::calcNumBatches(const poplar::Target& target, std::size_t n
   return batchCounter;
 }
 
+// Callback that connects to the output stream.
+// Currently just streams back the ray batch index to report
+// progress but same mechanism could be used to retrieve
+// partial rendering results in future.
 class ProgressCallback : public poplar::StreamCallback {
 public:
   ProgressCallback(std::uint32_t index) : replicaIndex(index), progress(0) {};

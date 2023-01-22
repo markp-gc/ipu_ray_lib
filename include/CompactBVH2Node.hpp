@@ -49,7 +49,9 @@ bool intersectRaySlab(float componentInvDir, float componentOrigin, float slabMi
   return true;
 }
 
-struct CompactBVH2Node {
+struct
+__attribute__ ((aligned (8)))
+CompactBVH2Node {
   static constexpr auto InvalidGeomID = std::numeric_limits<std::uint16_t>::max();
   static constexpr auto InvalidPrimID = std::numeric_limits<std::uint32_t>::max();
 

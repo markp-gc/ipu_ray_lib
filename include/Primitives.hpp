@@ -53,9 +53,10 @@ struct Sphere : Primitive {
 
 struct Disc : Primitive {
   embree_utils::Vec3fa n;
-  embree_utils::Vec3fa c;
   float r;
+  embree_utils::Vec3fa c;
   float r2;
+
   Disc(const embree_utils::Vec3fa& normal, const embree_utils::Vec3fa& centre, float radius)
     : n(normal.normalized()), c(centre), r(radius), r2(radius*radius) {}
   ~Disc() {}
