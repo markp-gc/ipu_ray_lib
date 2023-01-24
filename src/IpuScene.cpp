@@ -1,6 +1,7 @@
 // Copyright (c) 2022 Graphcore Ltd. All rights reserved.
 
 #include <IpuScene.hpp>
+#include <RayCallback.hpp>
 
 #include <poplar/CSRFunctions.hpp>
 #include <popops/Loop.hpp>
@@ -60,39 +61,6 @@ std::size_t IpuScene::calcNumBatches(const poplar::Target& target, std::size_t n
 
   return batchCounter;
 }
-
-// Callback that connects to the output stream.
-// Currently just streams back the ray batch index to report
-// progress but same mechanism could be used to retrieve
-// partial rendering results in future.
-class ProgressCallback : public poplar::StreamCallback {
-public:
-  ProgressCallback(std::uint32_t index) : replicaIndex(index), progress(0) {};
-
-  void fetch(void *p) {
-    std::memcpy(&progress, p, 2 * sizeof(std::uint32_t));
-    limit += 2; // IPU only reports pipeline inner loop index which is 2 short.
-  }
-
-  poplar::StreamCallback::Result prefetch(void* p) {
-    // This is only for host to device streams (but needs an implementation):
-    return poplar::StreamCallback::Result::Success;
-  }
-
-  void complete() {
-    // All replicas are perfectly in sync so only log progress of first one:
-    if (replicaIndex == 0) {
-      ipu_utils::logger()->info("Ray-batches finished: {}/{}", progress, limit);
-    }
-  }
-
-  void invalidatePrefetched() {}
-
-private:
-  const std::uint32_t replicaIndex;
-  std::uint32_t progress;
-  std::uint32_t limit;
-};
 
 std::vector<std::vector<embree_utils::TraceResult>>
 IpuScene::createRayBatches(const poplar::Device& device, std::size_t numComputeTiles) const {
@@ -227,10 +195,9 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
   const auto numWorkers = target.getNumWorkerContexts();
   const auto maxRaysPerIteration = maxRaysPerWorker * numWorkers;
   const auto perTileRayBufferSize = maxRaysPerIteration * sizeof(embree_utils::TraceResult);
-  const auto totalRayBufferSize = numComputeTiles * perTileRayBufferSize;
+  totalRayBufferSize = numComputeTiles * perTileRayBufferSize;
   ipu_utils::logger()->debug("Num compute tiles: {}", numComputeTiles);
   ipu_utils::logger()->debug("SRAM Ray buffer total size: {}", totalRayBufferSize);
-  ipu_utils::logger()->debug("Size of TraceResult struct (Host CPU): {}", sizeof(embree_utils::TraceResult));
 
   // Optimise stream copies to reduce memory use:
   const bool optimiseMemUse = true;
@@ -270,11 +237,12 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
   auto copyRaysIOToCompute = poplar::program::Copy(loadBuffer, rayTraceVars["rays"].flatten());
   auto copyRaysComputeToIO = poplar::program::Copy(rayTraceVars["rays"].flatten(), saveBuffer);
   // Stream the save index back to the host so it can monitor progress:
-  auto progressTensor = poplar::concat(saveIndex.reshape({1}), loopLimit.get().reshape({1})).flatten();
-  auto progressStream = ioGraph.addDeviceToHostFIFO("progress", progressTensor.elementType(), progressTensor.numElements());
-  poplar::program::Sequence saveRaysToDRAM = {
+  auto hostRayStream = ioGraph.addDeviceToHostFIFO("save_rays", saveBuffer.elementType(), saveBuffer.numElements());
+  poplar::program::Sequence saveRays = {
+    // Save rays to DRAM:
     poplar::program::Copy(saveBuffer, rayBuffer, saveIndex, "save_rays"),
-    poplar::program::Copy(progressTensor, progressStream, optimiseMemUse) // send progress to host
+    // Also stream saved rays to host:
+    poplar::program::Copy(saveBuffer, hostRayStream, "rays_to_host"),
   };
 
   // Compute sets:
@@ -403,7 +371,7 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
   // asynchronously with compute:
   poplar::program::Sequence traceBody {
     //poplar::program::PrintTensor("save idx: ", saveIndex),
-    saveRaysToDRAM,
+    saveRays,
     incSaveIndex,
     incLoadIndex,
     //poplar::program::PrintTensor("load idx: ", loadIndex),
@@ -428,12 +396,12 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
     copyRaysIOToCompute,
     traceLoop,
     //poplar::program::PrintTensor("save idx: ", saveIndex),
-    saveRaysToDRAM,
+    saveRays,
     incSaveIndex,
     rayTraceBody,
     copyRaysComputeToIO,
     //poplar::program::PrintTensor("save idx: ", saveIndex),
-    saveRaysToDRAM,
+    saveRays,
   };
 
   poplar::program::Sequence trace = {
@@ -451,11 +419,12 @@ void IpuScene::execute(poplar::Engine& engine, const poplar::Device& device) {
 
   // The max size is a multiple of the number of workers by definition:
   const auto numWorkers = device.getTarget().getNumWorkerContexts();
-  const auto maxRaysPerIteration = numComputeTiles * maxRaysPerWorker * numWorkers;
+  const auto totalRaysPerIteration = numComputeTiles * maxRaysPerWorker * numWorkers;
+  totalRayBufferSize = totalRaysPerIteration * sizeof(embree_utils::TraceResult);
   const auto numReplicas = getRuntimeConfig().numReplicas;
-  ipu_utils::logger()->debug("Rays per iteration: {} Total rays: {} ", maxRaysPerIteration, rayStream.size());
+  ipu_utils::logger()->debug("Rays per iteration: {} Total rays: {} ", totalRaysPerIteration, rayStream.size());
 
-  auto rayBatches = createRayBatches(device, numComputeTiles);
+  rayBatches = createRayBatches(device, numComputeTiles);
   std::uint32_t numBatchesPerReplica = rayBatches.size() / numReplicas;
   loopLimit.connectWriteStream(engine, &numBatchesPerReplica);
   samplesPerPixel.connectWriteStream(engine, &data.samplesPerPixel);
@@ -486,7 +455,7 @@ void IpuScene::execute(poplar::Engine& engine, const poplar::Device& device) {
 
   // Connect callbacks:
   for (auto i = 0u; i < numReplicas; ++i) {
-    engine.connectStreamToCallback("progress", i, std::make_unique<ProgressCallback>(i));
+    engine.connectStreamToCallback("save_rays", i, std::make_unique<RayCallback>(*this, i));
   }
 
   // We don't include sending initial rays to DRAM in timing (they
@@ -495,7 +464,7 @@ void IpuScene::execute(poplar::Engine& engine, const poplar::Device& device) {
   std::size_t replicaIndices[numReplicas] = {0};
   for (auto i = 0u; i < rayBatches.size(); ++i) {
     auto& v = rayBatches[i];
-    if (v.size() != maxRaysPerIteration) {
+    if (v.size() != totalRaysPerIteration) {
       throw std::runtime_error("The number of rays in each batch is not correct: " + std::to_string(v.size()));
     }
     const auto replica = i % numReplicas; // Cycle through the replicas for each sequential batch index
@@ -504,7 +473,7 @@ void IpuScene::execute(poplar::Engine& engine, const poplar::Device& device) {
   }
   auto endTime = std::chrono::steady_clock::now();
   auto secs = std::chrono::duration<double>(endTime - startTime).count();
-  ipu_utils::logger()->info("Host to DRAM ray bandwidth: {} GB/sec", (1e-9 * rayBatches.size() * maxRaysPerIteration * sizeof(embree_utils::TraceResult) / secs));
+  ipu_utils::logger()->info("Host to DRAM ray bandwidth: {} GB/sec", (1e-9 * rayBatches.size() * totalRaysPerIteration * sizeof(embree_utils::TraceResult) / secs));
 
   // Include initialisation (send BVH to device) in IPU timings:
   ipu_utils::logger()->info("IPU Rendering started.");
@@ -514,17 +483,19 @@ void IpuScene::execute(poplar::Engine& engine, const poplar::Device& device) {
   traceTimeSecs = std::chrono::duration<double>(endTime - startTime).count();
   ipu_utils::logger()->info("IPU Rendering finished.");
 
-  // Read rays back to host:
-  startTime = std::chrono::steady_clock::now();
-  for (auto& i : replicaIndices) { i = 0; }
-  for (auto i = 0u; i < rayBatches.size(); i += 1) {
-    const auto replica = i % numReplicas;
-    engine.copyFromRemoteBuffer("dram_ray_buffer", rayBatches[i].data(), replicaIndices[replica], replica);
-    replicaIndices[replica] += 1;
+  if (rayFunc == nullptr) {
+    // No callback was set so read rays back to host from DRAM in bulk:
+    startTime = std::chrono::steady_clock::now();
+    for (auto& i : replicaIndices) { i = 0; }
+    for (auto i = 0u; i < rayBatches.size(); i += 1) {
+      const auto replica = i % numReplicas;
+      engine.copyFromRemoteBuffer("dram_ray_buffer", rayBatches[i].data(), replicaIndices[replica], replica);
+      replicaIndices[replica] += 1;
+    }
+    endTime = std::chrono::steady_clock::now();
+    secs = std::chrono::duration<double>(endTime - startTime).count();
+    ipu_utils::logger()->info("DRAM to host ray bandwidth: {} GB/sec", (1e-9 * rayBatches.size() * totalRaysPerIteration * sizeof(embree_utils::TraceResult) / secs));
   }
-  endTime = std::chrono::steady_clock::now();
-  secs = std::chrono::duration<double>(endTime - startTime).count();
-  ipu_utils::logger()->info("DRAM to host ray bandwidth: {} GB/sec", (1e-9 * rayBatches.size() * maxRaysPerIteration * sizeof(embree_utils::TraceResult) / secs));
 
   // Copy result back into original stream:
   auto hitItr = rayStream.begin();
@@ -546,3 +517,9 @@ void IpuScene::execute(poplar::Engine& engine, const poplar::Device& device) {
   }
 }
 
+/// Return the per batch ray stream size for use when copying the ray stream
+/// to the host. The value gets set in build() and execute() because it requires
+/// knowledge of the target.
+std::size_t IpuScene::getRayStreamSize() const {
+  return totalRayBufferSize;
+}
