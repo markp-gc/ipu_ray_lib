@@ -104,6 +104,8 @@ unsigned visualiseHits(const std::vector<embree_utils::TraceResult>& rayStream, 
     rgbFunc, primFunc, normalFunc, tfarFunc, colFunc, hpFunc
   };
 
+  ipu_utils::logger()->trace("Visualise start");
+
   // Process results in parallel:
   std::atomic<unsigned> hitCount(0);
   #pragma omp parallel for schedule(auto)
@@ -115,6 +117,8 @@ unsigned visualiseHits(const std::vector<embree_utils::TraceResult>& rayStream, 
       hitCount += 1;
     }
   }
+
+  ipu_utils::logger()->trace("Visualise end");
 
   return hitCount;
 }

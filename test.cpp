@@ -363,7 +363,6 @@ boost::program_options::variables_map parseOptions(int argc, char** argv, boost:
     throw po::validation_error(po::validation_error::invalid_option_value, "render-mode");
   }
 
-
   po::notify(vm);
   return vm;
 }

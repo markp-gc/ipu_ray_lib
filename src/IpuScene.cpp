@@ -14,6 +14,8 @@
 #include <xoshiro.hpp>
 
 #include <vector>
+#include <random>
+#include <algorithm>
 
 poplar::program::Sequence IpuScene::fpSetupProg(poplar::Graph& graph) const {
   poplar::program::Sequence prog;
@@ -94,8 +96,6 @@ private:
 
 std::vector<std::vector<embree_utils::TraceResult>>
 IpuScene::createRayBatches(const poplar::Device& device, std::size_t numComputeTiles) const {
-  std::vector<std::vector<embree_utils::TraceResult>> rayBatches;
-
   // The max size is a multiple of the number of workers by definition:
   const auto numWorkers = device.getTarget().getNumWorkerContexts();
   const auto maxRaysPerIteration = maxRaysPerWorker * numWorkers * numComputeTiles;
@@ -106,6 +106,7 @@ IpuScene::createRayBatches(const poplar::Device& device, std::size_t numComputeT
   }
 
   // Batch the rays using unecessary copying for now:
+  std::vector<std::vector<embree_utils::TraceResult>> rayBatches;
   rayBatches.reserve(numBatches);
   auto hitItr = rayStream.begin();
 
