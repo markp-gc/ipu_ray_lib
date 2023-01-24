@@ -160,7 +160,7 @@ IpuScene::createRayBatches(const poplar::Device& device, std::size_t numComputeT
 
 void IpuScene::createComputeVars(poplar::Graph& computeGraph,
                                  std::size_t numComputeTiles,
-                                 std::size_t sramRayBufferSize) {
+                                 std::size_t perTileRayBufferSize) {
   // Add a variable to hold each primitive type.
   // Note: We allocate for the capacity not the size so that
   // larger scenes can be loaded into the same compiled graph:
@@ -207,7 +207,7 @@ void IpuScene::createComputeVars(poplar::Graph& computeGraph,
 
   // Ray trace vars are distributed across tiles:
   rayTraceVars = {
-    {"rays", computeGraph.addVariable(poplar::UNSIGNED_CHAR, {numComputeTiles, sramRayBufferSize}, "sram_ray_buffer")},
+    {"rays", computeGraph.addVariable(poplar::UNSIGNED_CHAR, {numComputeTiles, perTileRayBufferSize}, "sram_ray_buffer")},
   };
 }
 
@@ -226,9 +226,10 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
   numComputeTiles = computeGraph.getTarget().getNumTiles();
   const auto numWorkers = target.getNumWorkerContexts();
   const auto maxRaysPerIteration = maxRaysPerWorker * numWorkers;
-  const auto sramRayBufferSize = maxRaysPerIteration * sizeof(embree_utils::TraceResult);
+  const auto perTileRayBufferSize = maxRaysPerIteration * sizeof(embree_utils::TraceResult);
+  const auto totalRayBufferSize = numComputeTiles * perTileRayBufferSize;
   ipu_utils::logger()->debug("Num compute tiles: {}", numComputeTiles);
-  ipu_utils::logger()->debug("SRAM Ray buffer total size: {}", numComputeTiles * sramRayBufferSize);
+  ipu_utils::logger()->debug("SRAM Ray buffer total size: {}", totalRayBufferSize);
   ipu_utils::logger()->debug("Size of TraceResult struct (Host CPU): {}", sizeof(embree_utils::TraceResult));
 
   // Optimise stream copies to reduce memory use:
@@ -239,21 +240,21 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
   popops::addCodelets(computeGraph);
   poprand::addCodelets(computeGraph);
 
-  createComputeVars(computeGraph, numComputeTiles, sramRayBufferSize);
+  createComputeVars(computeGraph, numComputeTiles, perTileRayBufferSize);
 
   // Add remote buffer to store ray-batches:
   auto rayBatchesPerReplica = calcNumBatches(target, numComputeTiles) / getRuntimeConfig().numReplicas;
   ipu_utils::logger()->debug("Allocating buffer for {} ray batches in DRAM.", rayBatchesPerReplica);
-  ipu_utils::logger()->debug("DRAM Ray-buffer size: {} bytes", numComputeTiles * sramRayBufferSize * rayBatchesPerReplica);
+  ipu_utils::logger()->debug("DRAM Ray-buffer size: {} bytes", totalRayBufferSize * rayBatchesPerReplica);
   rayBuffer = computeGraph.addRemoteBuffer("dram_ray_buffer", poplar::UNSIGNED_CHAR,
-                                    numComputeTiles * sramRayBufferSize, rayBatchesPerReplica,
+                                    totalRayBufferSize, rayBatchesPerReplica,
                                     true, optimiseMemUse);
 
   // Add a duplicate SRAM ray buffer distributed across all I/O tiles:
-  auto loadBuffer = ioGraph.addVariable(poplar::UNSIGNED_CHAR, {numComputeTiles * sramRayBufferSize},
+  auto loadBuffer = ioGraph.addVariable(poplar::UNSIGNED_CHAR, {totalRayBufferSize},
                                         poplar::VariableMappingMethod::LINEAR, "ray_load_buffer");
   // We also need another tmp duplicate on the IO tiles:
-  auto saveBuffer = ioGraph.addVariable(poplar::UNSIGNED_CHAR, {numComputeTiles * sramRayBufferSize},
+  auto saveBuffer = ioGraph.addVariable(poplar::UNSIGNED_CHAR, {totalRayBufferSize},
                                         poplar::VariableMappingMethod::LINEAR, "ray_save_buffer");
   // Loop counter variables belong in I/O graph:
   auto loadIndex = ioGraph.addVariable(poplar::UNSIGNED_INT, {}, "load_index");
