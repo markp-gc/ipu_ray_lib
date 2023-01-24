@@ -18,7 +18,7 @@ void RayCallback::fetch(void *p) {
   // Increment the index even if no data was copied so progress can be logged:
   receiveIndex += scene.getRuntimeConfig().numReplicas;
   // Only log progress on one replica to reduce output:
-  if (replica == 0) {
+  if (replica == scene.getRuntimeConfig().numReplicas - 1) {
     ipu_utils::logger()->info("Ray-batches finished: {}/{}", receiveIndex, scene.getRayBatches().size());
   }
 }

@@ -259,9 +259,21 @@ std::vector<embree_utils::TraceResult> renderIPU(
   initPerspectiveRayStream(rayStream, image, sceneRef);
   zeroRgb(rayStream);
 
+  // This will be called as partial results are received from the IPU:
+  IpuScene::RayCallbackFn rayCallback;
+  IpuScene::RayCallbackFn* rayCallbackPtr = nullptr; // nullptr builds a renderer with no callback
+  if (args["ipu-ray-callback"].as<bool>()) {
+    rayCallback = [](std::size_t idx, const std::vector<embree_utils::TraceResult>& batch) {
+      // here we just log but we could process the batch of results
+      // e.g. to asynchronously update a render preview image.
+      ipu_utils::logger()->debug("Application callback received batch {}", idx);
+    };
+    rayCallbackPtr = &rayCallback;
+  }
+
   auto ipus = args["ipus"].as<std::uint32_t>();
   auto rpw = args["rays-per-worker"].as<std::size_t>();
-  IpuScene ipuScene(spheres, discs, sceneRef, rayStream, rpw);
+  IpuScene ipuScene(spheres, discs, sceneRef, rayStream, rpw, rayCallbackPtr);
   ipuScene.setRuntimeConfig(
     ipu_utils::RuntimeConfig {
       ipus, // numIpus;
@@ -321,6 +333,8 @@ void addOptions(boost::program_options::options_description& desc) {
   ("samples", po::value<std::uint32_t>()->default_value(256), "Number of samples per pixel for path tracing.")
   ("seed", po::value<std::uint64_t>()->default_value(1442), "RNG seed.")
   ("ipu-only", po::bool_switch()->default_value(false), "Only render on IPU (e.g. if you don't want to wait for slow CPU path tracing).")
+  ("ipu-ray-callback", po::bool_switch()->default_value(false), "Retrieve partial results directly from the IPU during renderering via callback mechanism. "
+                                                                "By default the results are read from DRAM on one go at the end of renderering.")
   ("log-level", po::value<std::string>()->default_value("info"),
   "Set the log level to one of the following: 'trace', 'debug', 'info', 'warn', 'err', 'critical', 'off'.");
 }
