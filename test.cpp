@@ -275,8 +275,10 @@ std::vector<embree_utils::TraceResult> renderIPU(
     }
   );
 
-  // For now we set a large timeout because the current implementation
-  // never returns to the host during rendering:
+  // Hard code a large timeout. There is a
+  // sync with the host ofter each ray batch but
+  // a single batch could take a long time when a
+  // large number of samples are used.
   ipu_utils::GraphManager().run(ipuScene,
                                 {{"target.hostSyncTimeout", "10000"}});
 
@@ -284,10 +286,6 @@ std::vector<embree_utils::TraceResult> renderIPU(
     scaleRgb(rayStream, 1.f / sceneRef.samplesPerPixel);
   }
 
-  // NOTE: Currently only one tile used on each replica
-  // so single IPU benchmark should be 1440x faster with
-  // perfect replication across tiles (we know scaling is
-  // perfect in that scenario):
   auto secs = ipuScene.getTraceTimeSecs();
   auto castsPerRay = sceneRef.pathTrace ? sceneRef.samplesPerPixel : 1;
   auto rateString = sceneRef.pathTrace ? "paths" : "rays";
