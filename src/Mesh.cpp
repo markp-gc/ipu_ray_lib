@@ -1,4 +1,5 @@
 // Copyright (c) 2022 Graphcore Ltd. All rights reserved.
+// Copyright (c) 1998-2015, Matt Pharr, Greg Humphreys, and Wenzel Jakob. All rights reserved.
 
 #include <Mesh.hpp>
 
