@@ -31,6 +31,7 @@ struct ConstArrayRef {
   // Reinterpret an array ref of the template type from a byte pointer:
   template <typename UnderlyingType>
   static ConstArrayRef reinterpret(const UnderlyingType* data, std::uint32_t size) {
+    // Note: this calculation only works for packed storage:
     return ConstArrayRef(reinterpret_cast<const T*>(data), (size * sizeof(UnderlyingType))/sizeof(T));
   }
 
@@ -69,6 +70,7 @@ struct ArrayRef {
   // Reinterpret an array ref of the template type from a byte pointer:
   template <typename UnderlyingType>
   static ArrayRef reinterpret(UnderlyingType* data, std::uint32_t size) {
+    // Note: this calculation only works for packed storage:
     return ArrayRef(reinterpret_cast<T*>(data), (size * sizeof(UnderlyingType))/sizeof(T));
   }
 

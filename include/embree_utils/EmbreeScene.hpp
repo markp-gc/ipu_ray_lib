@@ -116,7 +116,7 @@ public:
     embree_utils::addSphere(device, scene, pos, radius);
   }
 
-  void addTriMesh(ConstArrayRef<embree_utils::Vec3fa> vertices, ConstArrayRef<std::uint32_t> triIndices) {
+  void addTriMesh(ConstArrayRef<embree_utils::Vec3fa> vertices, ConstArrayRef<std::uint16_t> triIndices) {
     embree_utils::addTriMesh(device, scene, vertices, triIndices);
   }
 

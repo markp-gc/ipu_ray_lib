@@ -33,8 +33,8 @@ void addQuad(HostTriangleMesh& mesh, const std::vector<embree_utils::Vec3fa>& ve
   mesh.vertices.push_back(verts[2]);
   mesh.vertices.push_back(verts[3]);
 
-  mesh.triangles.push_back(Triangle{0 + vertOffset, 1 + vertOffset, 2 + vertOffset});
-  mesh.triangles.push_back(Triangle{2 + vertOffset, 3 + vertOffset, 0 + vertOffset});
+  mesh.triangles.push_back(Triangle(0 + vertOffset, 1 + vertOffset, 2 + vertOffset));
+  mesh.triangles.push_back(Triangle(2 + vertOffset, 3 + vertOffset, 0 + vertOffset));
 }
 
 HostTriangleMesh makeGroundPlane(const embree_utils::Vec3fa& pos, float scale) {
@@ -72,7 +72,7 @@ void importMesh(std::string& filename, std::vector<HostTriangleMesh>& meshes) {
           if (face.mNumIndices != 3) {
             throw std::runtime_error("Only triangle meshes are supported.");
           }
-          hostMesh.triangles.push_back(Triangle{face.mIndices[0], face.mIndices[1], face.mIndices[2]});
+          hostMesh.triangles.push_back(Triangle(face.mIndices[0], face.mIndices[1], face.mIndices[2]));
         }
         for (auto v = 0u; v < mesh.mNumVertices; ++v) {
           auto& vert = mesh.mVertices[v];
@@ -255,7 +255,7 @@ SceneDescription importScene(std::string& filename) {
       if (face.mNumIndices != 3) {
         throw std::runtime_error("Only triangle meshes are supported.");
       }
-      hostMesh.triangles.push_back(Triangle{face.mIndices[0], face.mIndices[1], face.mIndices[2]});
+      hostMesh.triangles.push_back(Triangle(face.mIndices[0], face.mIndices[1], face.mIndices[2]));
     }
     for (auto v = 0u; v < mesh.mNumVertices; ++v) {
       auto& vert = mesh.mVertices[v];

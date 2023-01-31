@@ -468,7 +468,7 @@ int main(int argc, char** argv) {
     data.geometry.emplace_back(i, GeomType::Mesh);
     embreeScene.addTriMesh(
       m.vertices,
-      ConstArrayRef<std::uint32_t>::reinterpret(m.triangles.data(), m.triangles.size()));
+      ConstArrayRef<std::uint16_t>::reinterpret(m.triangles.data(), m.triangles.size()));
   }
 
   for (auto i = 0u; i < scene.spheres.size(); ++i) {

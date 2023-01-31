@@ -18,9 +18,10 @@ struct Primitive {
   virtual embree_utils::Bounds3d getBoundingBox() const { return embree_utils::Bounds3d(); }
 };
 
-struct __attribute__((packed, aligned(alignof(std::uint32_t))))
+struct __attribute__((packed, aligned(alignof(std::uint16_t))))
 Triangle {
-  std::uint32_t v0, v1, v2;
+  Triangle(std::uint32_t a, std::uint32_t b, std::uint32_t c) : v0(a), v1(b), v2(c) {}
+  std::uint16_t v0, v1, v2;
 };
 
 struct RayShearParams {

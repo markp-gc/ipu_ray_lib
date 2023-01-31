@@ -19,7 +19,7 @@ struct Tri { std::uint32_t v0, v1, v2; };
 namespace embree_utils {
 
 unsigned int addTriMesh(RTCDevice device, RTCScene scene,
-                        ConstArrayRef<embree_utils::Vec3fa> vertices, ConstArrayRef<std::uint32_t> triIndices) {
+                        ConstArrayRef<embree_utils::Vec3fa> vertices, ConstArrayRef<std::uint16_t> triIndices) {
   // create a triangulated cube with 12 triangles and 8 vertices
   RTCGeometry mesh = rtcNewGeometry(device, RTC_GEOMETRY_TYPE_TRIANGLE);
 
@@ -31,6 +31,8 @@ unsigned int addTriMesh(RTCDevice device, RTCScene scene,
   }
 
   auto numTris = triIndices.size() / 3;
+  std::cerr << "tris size: " << triIndices.size() << "\n";
+  std::cerr << "num tris: " << numTris << "\n";
   if (triIndices.size() % 3) {
     throw std::logic_error("Number of triangle indices not divisible by 3.");
   }
