@@ -132,7 +132,7 @@ void IpuScene::createComputeVars(poplar::Graph& computeGraph,
   // Add a variable to hold each primitive type.
   // Note: We allocate for the capacity not the size so that
   // larger scenes can be loaded into the same compiled graph:
-  geometryVar.buildTensor(computeGraph, poplar::UNSIGNED_CHAR, {numComputeTiles, sizeof(GeomRef) * data.geometry.size()}),
+  geometryVar.buildTensor(computeGraph, poplar::UNSIGNED_CHAR, {numComputeTiles, data.geometry.size() * sizeof(GeomRef)}),
   spheresVar.buildTensor(computeGraph, poplar::UNSIGNED_CHAR, {numComputeTiles, spheres.capacity() * sizeof(Sphere)});
   discsVar.buildTensor(computeGraph, poplar::UNSIGNED_CHAR, {numComputeTiles, discs.capacity() * sizeof(Disc)});
   meshInfoVar.buildTensor(computeGraph, poplar::UNSIGNED_CHAR, {numComputeTiles, data.meshInfo.size() * sizeof(MeshInfo)});
@@ -149,6 +149,12 @@ void IpuScene::createComputeVars(poplar::Graph& computeGraph,
   materialsVar.buildTensor(computeGraph, poplar::UNSIGNED_CHAR, {numComputeTiles, data.materials.size() * sizeof(Material)});
   bvhNodesVar.buildTensor(computeGraph, poplar::UNSIGNED_CHAR, {numComputeTiles, data.bvhNodes.size() * sizeof(CompactBVH2Node)});
   samplesPerPixel.buildTensor(computeGraph, poplar::UNSIGNED_INT, {numComputeTiles, 1u});
+
+  ipu_utils::logger()->debug("Geometry info: {} bytes per tile", data.geometry.size() * sizeof(GeomRef));
+  ipu_utils::logger()->debug("Mesh info: {} bytes per tile", data.meshInfo.size() * sizeof(MeshInfo));
+  ipu_utils::logger()->debug("BVH nodes: {} bytes per tile", data.bvhNodes.size() * sizeof(CompactBVH2Node));
+  ipu_utils::logger()->debug("Index buffer: {} bytes per tile", data.meshTris.size() * sizeof(Triangle));
+  ipu_utils::logger()->debug("Vertex buffer: {} bytes per tile", data.meshVerts.size() * sizeof(embree_utils::Vec3fa));
 
   // The scene data vars get uploaded once by the host and then broadcast to every
   // tile so we store them in a separate map.
@@ -197,7 +203,8 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
   const auto perTileRayBufferSize = maxRaysPerIteration * sizeof(embree_utils::TraceResult);
   totalRayBufferSize = numComputeTiles * perTileRayBufferSize;
   ipu_utils::logger()->debug("Num compute tiles: {}", numComputeTiles);
-  ipu_utils::logger()->debug("SRAM Ray buffer total size: {}", totalRayBufferSize);
+  ipu_utils::logger()->debug("Ray buffer total size: {}", totalRayBufferSize);
+  ipu_utils::logger()->debug("Ray buffer: {} bytes per tile", perTileRayBufferSize);
 
   // Optimise stream copies to reduce memory use:
   const bool optimiseMemUse = true;

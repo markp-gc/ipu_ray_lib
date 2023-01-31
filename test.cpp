@@ -534,8 +534,8 @@ int main(int argc, char** argv) {
     scene.pathTrace != nullptr
   };
 
-  cv::Mat embreeImage(imageWidth, imageHeight, CV_32FC3);
-  cv::Mat cpuImage(imageWidth, imageHeight, CV_32FC3);
+  cv::Mat embreeImage(imageHeight, imageWidth, CV_32FC3);
+  cv::Mat cpuImage(imageHeight, imageWidth, CV_32FC3);
 
   if (!ipuOnly) {
     // First create the same image using our custom built BVH and
@@ -557,7 +557,7 @@ int main(int argc, char** argv) {
   }
 
   // Now render on IPU:
-  cv::Mat ipuImage(imageWidth, imageHeight, CV_32FC3);
+  cv::Mat ipuImage(imageHeight, imageWidth, CV_32FC3);
   auto rayStream = renderIPU(sceneRef, ipuImage, scene.spheres, scene.discs, args);
   auto hitCount = visualiseHits(rayStream, sceneRef, ipuImage, visMode);
   cv::imwrite(outPrefix + "ipu.exr", ipuImage);
