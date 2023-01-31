@@ -437,6 +437,7 @@ SceneDescription makeCornellBoxScene(std::string& meshFile, bool boxOnly) {
   if (!boxOnly) {
     // Add a few other primitives:
     scene.spheres.emplace_back(embree_utils::Vec3fa(450.f, 37.f, 90.f), 37.f);
+    scene.spheres.emplace_back(embree_utils::Vec3fa(350.f, 37.f, 90.f), 37.f);
     scene.discs.emplace_back(embree_utils::Vec3fa(1, 0, 0), embree_utils::Vec3fa(0.0002f, 300.f, 250.f), 60.f);
     importMesh(meshFile, scene.meshes);
   }
@@ -456,17 +457,22 @@ SceneDescription makeCornellBoxScene(std::string& meshFile, bool boxOnly) {
   }
 
   for (auto& s : scene.spheres) {
-    s.centre -= cameraPosition;
-    s.centre.x = -s.centre.x;
-    s.centre.z = -s.centre.z;
+    s.x -= cameraPosition.x;
+    s.y -= cameraPosition.y;
+    s.z -= cameraPosition.z;
+    s.x = -s.x;
+    s.z = -s.z;
+    ipu_utils::logger()->info("SPHERE: {} {} {}, {}", s.x, s.y, s.z, s.radius);
   }
 
   for (auto& d : scene.discs) {
-    d.c -= cameraPosition;
-    d.c.x = -d.c.x;
-    d.c.z = -d.c.z;
-    d.n.x = -d.n.x;
-    d.n.z = -d.n.z;
+    d.cx -= cameraPosition.x;
+    d.cy -= cameraPosition.y;
+    d.cz -= cameraPosition.z;
+    d.cx = -d.cx;
+    d.cz = -d.cz;
+    d.nx = -d.nx;
+    d.nz = -d.nz;
   }
 
   // Define materials:
@@ -492,6 +498,7 @@ SceneDescription makeCornellBoxScene(std::string& meshFile, bool boxOnly) {
     Material(lightR, lightE, Material::Type::Diffuse),
     Material(grey, black, Material::Type::Specular),
     Material(blue, blueLight, Material::Type::Diffuse),
+    Material(blue, black, Material::Type::Diffuse)
   };
 
   // Assign materials to primitives:
@@ -501,8 +508,8 @@ SceneDescription makeCornellBoxScene(std::string& meshFile, bool boxOnly) {
     4, 0, 1, 2, 0, 5,
     // Loaded Meshes (unfortunately we hard code materials for loaded meshes):
     0, 0,
-    // Sphere, disc
-    3, 6
+    // Sphere, sphere, disc
+    3, 7, 6
   };
 
   const auto numPrims = scene.meshes.size() + scene.spheres.size() + scene.discs.size();

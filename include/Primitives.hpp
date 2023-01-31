@@ -34,40 +34,49 @@ struct RayShearParams {
 };
 
 struct Sphere : Primitive {
-  embree_utils::Vec3fa centre;
+  // This is a hack to force IPU size/align to be compatible with the host:
+  struct __attribute__ ((aligned (8))) {
+    float x, y, z;
+  };
   const float radius;
   const float radius2;
 
-  Sphere(const embree_utils::Vec3fa& c, float r) : centre(c), radius(r), radius2(r*r) {}
+  Sphere(const embree_utils::Vec3fa& c, float r) : x(c.x), y(c.y), z(c.z), radius(r), radius2(r*r) {}
   ~Sphere() {}
 
   Intersection intersect(std::uint32_t primID, const embree_utils::Ray& ray) const override;
 
   embree_utils::Vec3fa normal(const Intersection&, const embree_utils::Vec3fa& point) const override {
-    return (point - centre).normalized();
+    return (point - embree_utils::Vec3fa(x, y, z)).normalized();
   }
 
   embree_utils::Bounds3d getBoundingBox() const override {
+    const embree_utils::Vec3fa centre(x, y, z);
     return embree_utils::Bounds3d{centre - radius, centre + radius};
   }
 };
 
 struct Disc : Primitive {
-  embree_utils::Vec3fa n;
+  struct __attribute__ ((aligned (8))) {
+    float nx, ny, nz;
+  };
   float r;
-  embree_utils::Vec3fa c;
+  struct __attribute__ ((aligned (8))) {
+    float cx, cy, cz;
+  };
   float r2;
 
   Disc(const embree_utils::Vec3fa& normal, const embree_utils::Vec3fa& centre, float radius)
-    : n(normal.normalized()), c(centre), r(radius), r2(radius*radius) {}
+    : nx(normal.x), ny(normal.y), nz(normal.z), cx(centre.x), cy(centre.y), cz(centre.z), r(radius), r2(radius*radius) {}
   ~Disc() {}
 
-  embree_utils::Vec3fa normal(const Intersection&, const embree_utils::Vec3fa&) const override { return n; }
+  embree_utils::Vec3fa normal(const Intersection&, const embree_utils::Vec3fa&) const override { return embree_utils::Vec3fa(nx, ny, nz); }
 
   Intersection intersect(std::uint32_t primID, const embree_utils::Ray& ray) const override;
 
   embree_utils::Bounds3d getBoundingBox() const override {
     // Disc is always within its bounding sphere (very slack bound is computed in constructor):
+    const embree_utils::Vec3fa c(cx, cy, cz);
     return embree_utils::Bounds3d(c - r, c + r);
   }
 };

@@ -397,8 +397,8 @@ int main(int argc, char** argv) {
   ipu_utils::logger()->debug("HitRecord align: {}", alignof(embree_utils::HitRecord));
   ipu_utils::logger()->debug("TraceResult size: {}", sizeof(embree_utils::TraceResult));
   ipu_utils::logger()->debug("TraceResult align: {}", alignof(embree_utils::TraceResult));
-  ipu_utils::logger()->debug("ComapctBVH2Node size: {}", sizeof(CompactBVH2Node));
-  ipu_utils::logger()->debug("ComapctBVH2Node align: {}", alignof(CompactBVH2Node));
+  ipu_utils::logger()->debug("CompactBVH2Node size: {}", sizeof(CompactBVH2Node));
+  ipu_utils::logger()->debug("CompactBVH2Node align: {}", alignof(CompactBVH2Node));
   ipu_utils::logger()->debug("Ray size: {}", sizeof(embree_utils::Ray));
   ipu_utils::logger()->debug("Ray align: {}", alignof(embree_utils::Ray));
   ipu_utils::logger()->debug("RayShearParams size: {}", sizeof(RayShearParams));
@@ -457,8 +457,6 @@ int main(int argc, char** argv) {
     }
   }
 
-  const bool ipuOnly = args["ipu-only"].as<bool>();
-
   // Initialise Embree:
   embree_utils::EmbreeScene embreeScene;
 
@@ -474,13 +472,13 @@ int main(int argc, char** argv) {
   for (auto i = 0u; i < scene.spheres.size(); ++i) {
     auto& s = scene.spheres[i];
     data.geometry.emplace_back(i, GeomType::Sphere);
-    embreeScene.addSphere(s.centre, s.radius);
+    embreeScene.addSphere(embree_utils::Vec3fa(s.x, s.y, s.z), s.radius);
   }
 
   for (auto i = 0u; i < scene.discs.size(); ++i) {
     auto& d = scene.discs[i];
     data.geometry.emplace_back(i, GeomType::Disc);
-    embreeScene.addDisc(d.c, d.n, d.r);
+    embreeScene.addDisc(embree_utils::Vec3fa(d.nx, d.ny, d.nz), embree_utils::Vec3fa(d.cx, d.cy, d.cz), d.r);
   }
 
   data.materials = scene.materials;
@@ -537,6 +535,7 @@ int main(int argc, char** argv) {
   cv::Mat embreeImage(imageHeight, imageWidth, CV_32FC3);
   cv::Mat cpuImage(imageHeight, imageWidth, CV_32FC3);
 
+  const bool ipuOnly = args["ipu-only"].as<bool>();
   if (!ipuOnly) {
     // First create the same image using our custom built BVH and
     // custom intersection routines:

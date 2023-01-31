@@ -17,7 +17,12 @@ static constexpr float InvPi = 1.0 / doublePi;
 static constexpr float Piby2 = (float)(doublePi / 2.0);
 static constexpr float Piby4 = (float)(doublePi / 4.0);
 
-struct __attribute__ ((aligned (8))) Vec3fa {
+// Using an align of 8 increases performance by 1% but costs 25% more vertex buffer storage.
+// An align of 4 probably hurts auto-vectorisation. The performance can probably be claimed
+// back with explicit vectorisation so the default is to prefer the memory saving:
+#define VEC3_ALIGN 4
+
+struct __attribute__ ((aligned (VEC3_ALIGN))) Vec3fa {
   Vec3fa() {}
   Vec3fa(float _v) : x(_v), y(_v), z(_v) {}
   Vec3fa(float _x, float _y, float _z) : x(_x), y(_y), z(_z) {}

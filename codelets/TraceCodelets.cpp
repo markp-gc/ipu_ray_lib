@@ -2,6 +2,9 @@
 
 // This file contains IPU compute codelets (kernels) for ray/path-tracing.
 
+#define DEBUG 0
+#include "debug_print.hpp"
+
 #include <poplar/Vertex.hpp>
 #include <poplar/HalfFloat.hpp>
 #include <poplar/StackSizeDefs.hpp>
@@ -87,16 +90,16 @@ public:
       meshIdx += 1;
     }
 
-    // Other primitves are "re-newed" using their own data:
+    // Other primitives are "re-newed" using their own data:
     for (auto &s : wrappedSpheres) {
-      new ((void*)&s) Sphere(s.centre, s.radius);
+      new ((void*)&s) Sphere(Vec3fa(s.x, s.y, s.z), s.radius);
     }
 
     for (auto &d : wrappedDiscs) {
-      new ((void*)&d) Disc(d.n, d.c, d.r);
+      new ((void*)&d) Disc(Vec3fa(d.nx, d.ny, d.nz), Vec3fa(d.cx, d.cy, d.cz), d.r);
     }
 
-    return false;
+    return true;
   }
 };
 

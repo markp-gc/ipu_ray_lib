@@ -129,12 +129,10 @@ IpuScene::createRayBatches(const poplar::Device& device, std::size_t numComputeT
 void IpuScene::createComputeVars(poplar::Graph& computeGraph,
                                  std::size_t numComputeTiles,
                                  std::size_t perTileRayBufferSize) {
-  // Add a variable to hold each primitive type.
-  // Note: We allocate for the capacity not the size so that
-  // larger scenes can be loaded into the same compiled graph:
+  // Add a variable to hold each primitive type:
   geometryVar.buildTensor(computeGraph, poplar::UNSIGNED_CHAR, {numComputeTiles, data.geometry.size() * sizeof(GeomRef)}),
-  spheresVar.buildTensor(computeGraph, poplar::UNSIGNED_CHAR, {numComputeTiles, spheres.capacity() * sizeof(Sphere)});
-  discsVar.buildTensor(computeGraph, poplar::UNSIGNED_CHAR, {numComputeTiles, discs.capacity() * sizeof(Disc)});
+  spheresVar.buildTensor(computeGraph, poplar::UNSIGNED_CHAR, {numComputeTiles, spheres.size() * sizeof(Sphere)});
+  discsVar.buildTensor(computeGraph, poplar::UNSIGNED_CHAR, {numComputeTiles, discs.size() * sizeof(Disc)});
   meshInfoVar.buildTensor(computeGraph, poplar::UNSIGNED_CHAR, {numComputeTiles, data.meshInfo.size() * sizeof(MeshInfo)});
 
   // How to do this cleanly: if we had more than one mesh we need these vars for every single mesh.

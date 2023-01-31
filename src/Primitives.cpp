@@ -22,6 +22,7 @@ RayShearParams::RayShearParams(const embree_utils::Ray& ray)
 }
 
 Intersection Sphere::intersect(std::uint32_t primID, const embree_utils::Ray& ray) const {
+  const embree_utils::Vec3fa centre(x, y, z);
   embree_utils::Vec3fa f = centre - ray.origin;
   auto rd2 = 1.f / ray.direction.squaredNorm();
   auto tca = f.dot(ray.direction) * rd2;
@@ -45,6 +46,8 @@ Intersection Sphere::intersect(std::uint32_t primID, const embree_utils::Ray& ra
 }
 
 Intersection Disc::intersect(std::uint32_t primID, const embree_utils::Ray& ray) const {
+  const embree_utils::Vec3fa c(cx, cy, cz);
+  const embree_utils::Vec3fa n(nx, ny, nz);
   auto angle = n.dot(ray.direction);
   if (angle != 0.f) {
     auto d = std::abs(c.dot(n));
