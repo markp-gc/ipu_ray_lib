@@ -31,8 +31,6 @@ unsigned int addTriMesh(RTCDevice device, RTCScene scene,
   }
 
   auto numTris = triIndices.size() / 3;
-  std::cerr << "tris size: " << triIndices.size() << "\n";
-  std::cerr << "num tris: " << numTris << "\n";
   if (triIndices.size() % 3) {
     throw std::logic_error("Number of triangle indices not divisible by 3.");
   }
