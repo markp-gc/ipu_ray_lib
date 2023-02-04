@@ -228,3 +228,117 @@ std::optional<CropWindow> parseCropString(const std::string& cropFmt) {
     );
   }
 }
+
+std::unique_ptr<PathTraceSettings> makePathTraceSettings(const boost::program_options::variables_map& args) {
+  auto settings = std::make_unique<PathTraceSettings>();
+  auto rngSeed = args["seed"].as<std::uint64_t>();
+  settings->sampler = xoshiro::Generator(rngSeed);
+  settings->maxPathLength = args["max-path-length"].as<std::uint32_t>();
+  settings->roulletteStartDepth = args["roulette-start-depth"].as<std::uint32_t>();
+  settings->samplesPerPixel = args["samples"].as<std::uint32_t>();
+  if (args.at("visualise").as<std::string>() != "rgb") {
+    throw std::runtime_error("Running path-tracing without visualise=rgb is not advised.");
+  }
+  return settings;
+}
+
+// Load or build the scene description (depending on args).
+// This is a high level description (i.e. in case of loading
+// from file the scne is imported into data structures that
+// mirror the file import format).
+SceneDescription buildSceneDescription(const boost::program_options::variables_map& args) {
+  // Create the high level scene description:
+  auto meshFile = args["mesh-file"].as<std::string>();
+
+  SceneDescription scene;
+  if (meshFile.empty()) {
+    // If no meshfile is provided the default to the box. In this case a
+    // hard coded mesh file is displayed using one of the boxes as a plinth:
+    meshFile = "../assets/monkey_bust.glb";
+    scene = makeCornellBoxScene(meshFile, args["box-only"].as<bool>());
+  } else {
+    // Otherwise load only the scene
+    scene = importScene(meshFile);
+  }
+
+  if (args["render-mode"].as<std::string>() == "path-trace") {
+    scene.pathTrace = makePathTraceSettings(args);
+  }
+
+  return scene;
+}
+
+// Build efficient scene representations for both Embree and our custom CPU/IPU renderers/
+//
+// The scene description needs to be converted into a compact representation
+// that can be shared (as far as possible) between Embree, CPU, and IPU
+// renders.
+//
+// Note: creation order is important in all cases because geomIDs
+// (Embree concept) are used to retrieve primitives during BVH traversal)
+// Mapping between materials and primitives also depends on a consistent order.
+std::pair<SceneData, embree_utils::EmbreeScene> buildSceneData(const SceneDescription& scene) {
+  SceneData data;
+
+  // We need a compact representation for multiple meshes that we can transfer
+  // to the device easily. Append all the triangle buffer indices and vertex
+  // indices into unified arrays:
+  data.meshInfo.reserve(scene.meshes.size());
+  for (const auto& m : scene.meshes) {
+    data.meshInfo.emplace_back(
+      MeshInfo{
+        (std::uint32_t)data.meshTris.size(), (std::uint32_t)data.meshVerts.size(),
+        (std::uint32_t)m.triangles.size(), (std::uint32_t)m.vertices.size()
+      }
+    );
+
+    for (const auto& t : m.triangles) {
+      data.meshTris.push_back(t);
+    }
+    for (const auto& v : m.vertices) {
+      data.meshVerts.push_back(v);
+    }
+  }
+
+  // Initialise Embree:
+  embree_utils::EmbreeScene embreeScene;
+
+  // Create both the Embree and custom representations of all primitives:
+  for (auto i = 0u; i < scene.meshes.size(); ++i) {
+    auto& m = scene.meshes[i];
+    data.geometry.emplace_back(i, GeomType::Mesh);
+    embreeScene.addTriMesh(
+      m.vertices,
+      ConstArrayRef<std::uint16_t>::reinterpret(m.triangles.data(), m.triangles.size()));
+  }
+
+  for (auto i = 0u; i < scene.spheres.size(); ++i) {
+    auto& s = scene.spheres[i];
+    data.geometry.emplace_back(i, GeomType::Sphere);
+    embreeScene.addSphere(embree_utils::Vec3fa(s.x, s.y, s.z), s.radius);
+  }
+
+  for (auto i = 0u; i < scene.discs.size(); ++i) {
+    auto& d = scene.discs[i];
+    data.geometry.emplace_back(i, GeomType::Disc);
+    embreeScene.addDisc(embree_utils::Vec3fa(d.nx, d.ny, d.nz), embree_utils::Vec3fa(d.cx, d.cy, d.cz), d.r);
+  }
+
+  data.materials = scene.materials;
+  data.matIDs = scene.matIDs;
+
+  auto buildPrimitives = makeBuildPrimitivesForEmbree(data, scene);
+
+  // Build our own BVH (still using Embree to build it):
+  embree_utils::BvhBuilder builder(embreeScene.getDevice());
+  builder.build(buildPrimitives);
+  std::uint32_t maxDepth;
+
+  // Convert our custom BVH into a compact form (i.e. convert the tree to a linear array):
+  data.bvhNodes = buildCompactBvh(builder.getRoot(), builder.nodeCount(), data.bvhMaxDepth);
+  buildPrimitives.clear(); // Embree is done with this now so free the space
+
+  ipu_utils::logger()->debug("Max leaf depth in BVH: {}", data.bvhMaxDepth);
+
+  return {data, embreeScene};
+}

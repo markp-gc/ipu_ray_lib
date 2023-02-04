@@ -41,6 +41,7 @@ struct SceneData {
   std::vector<std::uint32_t> matIDs;  // Material index corresponding to each primitive
   std::vector<Material> materials;   // Materials
   std::vector<CompactBVH2Node> bvhNodes; // BVH Nodes
+  std::uint32_t bvhMaxDepth;
 };
 
 #endif // ifndef __IPU__

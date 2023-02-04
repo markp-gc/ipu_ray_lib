@@ -313,7 +313,7 @@ void addOptions(boost::program_options::options_description& desc) {
   desc.add_options()
   ("help", "Show command help.")
   ("ipus", po::value<std::uint32_t>()->default_value(4), "Select number of IPUs (each IPU will be a replica).")
-  ("rays-per-worker", po::value<std::size_t>()->default_value(6), "Set the number of rays processed by each threa din each iteration. Lower values relieve I/O tile memory pressure.")
+  ("rays-per-worker", po::value<std::size_t>()->default_value(6), "Set the number of rays processed by each thread in each iteration. Lower values relieve I/O tile memory pressure.")
   ("width,w", po::value<std::int32_t>()->default_value(768), "Set rendered image width.")
   ("height,h", po::value<std::int32_t>()->default_value(432), "Set rendered image height.")
   ("crop", po::value<std::string>()->default_value(""),
@@ -393,6 +393,7 @@ int main(int argc, char** argv) {
     return EXIT_FAILURE;
   }
 
+  // Log size info for various types, useful during memory optimisation:
   ipu_utils::logger()->debug("HitRecord size: {}", sizeof(embree_utils::HitRecord));
   ipu_utils::logger()->debug("HitRecord align: {}", alignof(embree_utils::HitRecord));
   ipu_utils::logger()->debug("TraceResult size: {}", sizeof(embree_utils::TraceResult));
@@ -404,123 +405,34 @@ int main(int argc, char** argv) {
   ipu_utils::logger()->debug("RayShearParams size: {}", sizeof(RayShearParams));
   ipu_utils::logger()->debug("RayShearParams align: {}", alignof(RayShearParams));
 
-  // Create the high level scene description:
-  auto meshFile = args["mesh-file"].as<std::string>();
+  // ===== Scene setup: ======
 
-  SceneDescription scene;
-  if (meshFile.empty()) {
-    // If no meshfile is provided the default to the box. In this case a
-    // hard coded mesh file is displayed using one of the boxes as a plinth:
-    meshFile = "../assets/monkey_bust.glb";
-    scene = makeCornellBoxScene(meshFile, args["box-only"].as<bool>());
-  } else {
-    // Otherwise load only the scene
-    scene = importScene(meshFile);
-  }
+  // Load or build a scene:
+  auto scene = buildSceneDescription(args);
 
-  auto rngSeed = args["seed"].as<std::uint64_t>();
-  if (args["render-mode"].as<std::string>() == "path-trace") {
-    scene.pathTrace = std::make_unique<PathTraceSettings>();
-    scene.pathTrace->sampler = xoshiro::Generator(rngSeed);
-    scene.pathTrace->maxPathLength = args["max-path-length"].as<std::uint32_t>();
-    scene.pathTrace->roulletteStartDepth = args["roulette-start-depth"].as<std::uint32_t>();
-    scene.pathTrace->samplesPerPixel = args["samples"].as<std::uint32_t>();
-    if (args.at("visualise").as<std::string>() != "rgb") {
-      throw std::runtime_error("Running path-tracing without visualise=rgb is not advised.");
-    }
-  }
-
-  // Scene needs to be converted into a compact representation
-  // that can be shared (as far as possible) between Embree, CPU, and IPU
-  // renders. Note: creation order is important in all cases because geomIDs
-  // (Embree concept) are used to retrieve primitives during BVH traversal)
-  // Mapping between materials and primitives also depends on a consistent order.
-  SceneData data;
-
-  // We need a compact representation for multiple meshes that we can transfer
-  // to the device easily. Append all the triangle buffer indices and vertex
-  // indices into unified arrays:
-  data.meshInfo.reserve(scene.meshes.size());
-  for (const auto& m : scene.meshes) {
-    data.meshInfo.emplace_back(
-      MeshInfo{
-        (std::uint32_t)data.meshTris.size(), (std::uint32_t)data.meshVerts.size(),
-        (std::uint32_t)m.triangles.size(), (std::uint32_t)m.vertices.size()
-      }
-    );
-
-    for (const auto& t : m.triangles) {
-      data.meshTris.push_back(t);
-    }
-    for (const auto& v : m.vertices) {
-      data.meshVerts.push_back(v);
-    }
-  }
-
-  // Initialise Embree:
-  embree_utils::EmbreeScene embreeScene;
-
-  // Create Embree and custom representations of all primitives:
-  for (auto i = 0u; i < scene.meshes.size(); ++i) {
-    auto& m = scene.meshes[i];
-    data.geometry.emplace_back(i, GeomType::Mesh);
-    embreeScene.addTriMesh(
-      m.vertices,
-      ConstArrayRef<std::uint16_t>::reinterpret(m.triangles.data(), m.triangles.size()));
-  }
-
-  for (auto i = 0u; i < scene.spheres.size(); ++i) {
-    auto& s = scene.spheres[i];
-    data.geometry.emplace_back(i, GeomType::Sphere);
-    embreeScene.addSphere(embree_utils::Vec3fa(s.x, s.y, s.z), s.radius);
-  }
-
-  for (auto i = 0u; i < scene.discs.size(); ++i) {
-    auto& d = scene.discs[i];
-    data.geometry.emplace_back(i, GeomType::Disc);
-    embreeScene.addDisc(embree_utils::Vec3fa(d.nx, d.ny, d.nz), embree_utils::Vec3fa(d.cx, d.cy, d.cz), d.r);
-  }
-
-  data.materials = scene.materials;
-  data.matIDs = scene.matIDs;
-
-  auto buildPrimitives = makeBuildPrimitivesForEmbree(data, scene);
-
-  // Build our own BVH (still using Embree to build it):
-  embree_utils::BvhBuilder builder(embreeScene.getDevice());
-  builder.build(buildPrimitives);
-  std::uint32_t maxDepth;
-
-  // Convert our custom BVH into a compact form (i.e. convert the tree to a linear array):
-  data.bvhNodes = buildCompactBvh(builder.getRoot(), builder.nodeCount(), maxDepth);
-  buildPrimitives.clear(); // Embree is done with this now so free the space
-
-  ipu_utils::logger()->debug("Max leaf depth in BVH: {}", maxDepth);
-
-  // ===== Rendering: ======
-  const auto visModeStr = args.at("visualise").as<std::string>();
-  const auto visMode = visStrMap.at(visModeStr);
-  const auto imageWidth = args["width"].as<std::int32_t>();
-  const auto imageHeight = args["height"].as<std::int32_t>();
-  const auto cropFmt = args["crop"].as<std::string>();
-  const std::string outPrefix = "out_" + visModeStr + "_";
+  // Convert scene into efficient representations for rendering:
+  auto [customScene, embreeScene] = buildSceneData(scene);
 
   // Get cropped window size:
-  auto crop = parseCropString(cropFmt);
+  const auto imageWidth = args["width"].as<std::int32_t>();
+  const auto imageHeight = args["height"].as<std::int32_t>();
+  auto crop = parseCropString(args["crop"].as<std::string>());
   auto window = crop.value_or(CropWindow{imageWidth, imageHeight, 0, 0}); // (Set window to whole image if crop wasn't specified)
   ipu_utils::logger()->info("Rendering window: width: {}, height: {}, start col: {}, start row: {}", window.w, window.h, window.c, window.r);
 
-  // Test the SceneRef structure:
+  // The SceneRef wraps the dynamic arrays from the custom scene represenation in data structures that
+  // can be backed by either dynamic (for CPU) or static (for IPU) arrays. This allows the CPU code to
+  // be almost identical to IPU code which makes development and debugging quicker:
   SceneRef sceneRef {
-    ConstArrayRef(data.geometry),
-    ConstArrayRef(data.meshInfo),
-    ConstArrayRef(data.meshTris),
-    ConstArrayRef(data.meshVerts),
-    ConstArrayRef(data.matIDs),
-    ConstArrayRef(data.materials),
-    ConstArrayRef(data.bvhNodes),
-    maxDepth,
-    rngSeed,
+    ConstArrayRef(customScene.geometry),
+    ConstArrayRef(customScene.meshInfo),
+    ConstArrayRef(customScene.meshTris),
+    ConstArrayRef(customScene.meshVerts),
+    ConstArrayRef(customScene.matIDs),
+    ConstArrayRef(customScene.materials),
+    ConstArrayRef(customScene.bvhNodes),
+    customScene.bvhMaxDepth,
+    args["seed"].as<std::uint64_t>(),
     (float)imageWidth,
     (float)imageHeight,
     scene.camera.horizontalFov,
@@ -531,6 +443,12 @@ int main(int argc, char** argv) {
     args["roulette-start-depth"].as<std::uint32_t>(),
     scene.pathTrace != nullptr
   };
+
+  // ===== Rendering: ======
+
+  const auto visModeStr = args.at("visualise").as<std::string>();
+  const auto visMode = visStrMap.at(visModeStr);
+  const std::string outPrefix = "out_" + visModeStr + "_";
 
   cv::Mat embreeImage(imageHeight, imageWidth, CV_32FC3);
   cv::Mat cpuImage(imageHeight, imageWidth, CV_32FC3);
@@ -544,7 +462,7 @@ int main(int argc, char** argv) {
     cv::imwrite(outPrefix + "cpu.exr", cpuImage);
     ipu_utils::logger()->debug("CPU reference hit count: {}", hitCount);
 
-    // Now create reference image using embree:
+    // Now create reference image using Embree:
     if (sceneRef.pathTrace) {
       ipu_utils::logger()->warn("Embree path trace not yet implemented.");
     } else {
@@ -561,6 +479,8 @@ int main(int argc, char** argv) {
   auto hitCount = visualiseHits(rayStream, sceneRef, ipuImage, visMode);
   cv::imwrite(outPrefix + "ipu.exr", ipuImage);
   ipu_utils::logger()->debug("IPU hit count: {}", hitCount);
+
+  // ===== Testing: ======
 
   if (!ipuOnly) {
     // Compare IPU and CPU outputs:
