@@ -19,7 +19,8 @@ struct Tri { std::uint32_t v0, v1, v2; };
 namespace embree_utils {
 
 unsigned int addTriMesh(RTCDevice device, RTCScene scene,
-                        ConstArrayRef<embree_utils::Vec3fa> vertices, ConstArrayRef<std::uint16_t> triIndices) {
+                        ConstArrayRef<embree_utils::Vec3fa> vertices,
+                        ConstArrayRef<std::uint16_t> triIndices) {
   // create a triangulated cube with 12 triangles and 8 vertices
   RTCGeometry mesh = rtcNewGeometry(device, RTC_GEOMETRY_TYPE_TRIANGLE);
 

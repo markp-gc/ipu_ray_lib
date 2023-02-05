@@ -38,6 +38,7 @@ struct SceneData {
   std::vector<MeshInfo> meshInfo; // Stores offsets for each mesh in the unified index and vertex buffers
   std::vector<Triangle> meshTris;
   std::vector<embree_utils::Vec3fa> meshVerts;
+  std::vector<embree_utils::Vec3fa> meshNormals;
   std::vector<std::uint32_t> matIDs;  // Material index corresponding to each primitive
   std::vector<Material> materials;   // Materials
   std::vector<CompactBVH2Node> bvhNodes; // BVH Nodes
@@ -51,6 +52,7 @@ struct SceneRef {
   ConstArrayRef<MeshInfo> meshInfo;
   ConstArrayRef<Triangle> meshTris;
   ConstArrayRef<embree_utils::Vec3fa> meshVerts;
+  ConstArrayRef<embree_utils::Vec3fa> meshNormals;
   ConstArrayRef<std::uint32_t> matIDs;
   ConstArrayRef<Material> materials;
   ConstArrayRef<CompactBVH2Node> bvhNodes;

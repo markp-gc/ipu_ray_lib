@@ -92,5 +92,5 @@ scenes by inspecting it. You can render the scene from the DAE file like this
 (turning on logging to see how materials are being interpreted):
 
 ```
-./test -w 1440 -h 1440 --render-mode path-trace --visualise rgb --samples 4000 --ipus 4 --ipu-only --mesh-file ../assets/test_scene.dae --log-level debug
+./test -w 1440 -h 1440 --render-mode path-trace --visualise rgb --samples 4000 --ipus 4 --ipu-only --mesh-file ../assets/test_scene.dae --load-normals --log-level debug
 ```

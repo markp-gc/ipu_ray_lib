@@ -56,6 +56,7 @@ public:
 
   // Mesh internal data arrays:
   InOut<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(Vec3fa)>> verts;
+  InOut<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(Vec3fa)>> normals;
   InOut<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(Triangle)>> tris;
   InOut<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(CompiledTriangleMesh)>> meshes;
 
@@ -65,6 +66,7 @@ public:
     auto wrappedDiscs = ConstArrayRef<Disc>::reinterpret(&discs[0], discs.size());
     auto wrappedMeshInfo = ConstArrayRef<MeshInfo>::reinterpret(&meshInfo[0], meshInfo.size());
     auto wrappedVerts = ConstArrayRef<Vec3fa>::reinterpret(&verts[0], verts.size());
+    auto wrappedNormals = ConstArrayRef<Vec3fa>::reinterpret(&normals[0], normals.size());
     auto wrappedTris = ConstArrayRef<Triangle>::reinterpret(&tris[0], tris.size());
 
     // Need to re-new everything i.e. reconstruct in place using placement-new!
@@ -82,10 +84,18 @@ public:
     auto wrappedMeshes = ConstArrayRef<CompiledTriangleMesh>::reinterpret(&meshes[0], meshes.size());
     auto meshIdx = 0u;
     for (const auto& info : wrappedMeshInfo) {
+      auto firstNormalIndex = 0u;
+      auto numNormals = 0u;
+      if (normals.size()) {
+        // If scene has normals assume every mesh has normals:
+        firstNormalIndex = info.firstVertex;
+        numNormals = info.numVertices;
+      }
       new ((void*)&wrappedMeshes[meshIdx]) CompiledTriangleMesh(
         embree_utils::Bounds3d(),
         ConstArrayRef(&wrappedTris[info.firstIndex], info.numTriangles),
-        ConstArrayRef(&wrappedVerts[info.firstVertex], info.numVertices)
+        ConstArrayRef(&wrappedVerts[info.firstVertex], info.numVertices),
+        ConstArrayRef(&wrappedNormals[firstNormalIndex], numNormals)
       );
       meshIdx += 1;
     }
@@ -163,6 +173,7 @@ public:
   // and kept live because the mesh holds pointers to their connected tensors.
   Input<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(Triangle)>> tris;
   Input<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(Vec3fa)>> verts;
+  Input<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(Vec3fa)>> normals;
 
   // Scene description and BVH:
   Input<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(GeomRef)>> geometry;
@@ -291,6 +302,7 @@ public:
   // and kept live because the mesh holds pointers to their connected tensors.
   Input<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(Triangle)>> tris;
   Input<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(Vec3fa)>> verts;
+  Input<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(Vec3fa)>> normals;
 
   // Scene description and BVH:
   Input<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(GeomRef)>> geometry;

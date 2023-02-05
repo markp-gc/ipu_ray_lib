@@ -19,6 +19,12 @@ struct MeshInfo {
   std::uint32_t numVertices; // Number of vertices in this mesh.
 };
 
+// Special record for triangle instersections:
+struct TriangleIntersection {
+  float t; // ray hit paramter
+  float b0, b1, b2; // barycentric coords of hit-point
+};
+
 // This triangle mesh class is templated on the storage type so that we can use dynamic
 // storage type (std::vector) on CPU and then easily convert to a static storage
 // type (ConstArrayRef) in IPU kernels whilst re-using the same implementation. 
@@ -31,19 +37,17 @@ struct TriangleMesh : Primitive {
   TriangleMesh(
       const embree_utils::Bounds3d& _bounds,
       Storage<Triangle>&& externTriangles,
-      Storage<embree_utils::Vec3fa>&& externVertices)
+      Storage<embree_utils::Vec3fa>&& externVertices,
+      Storage<embree_utils::Vec3fa>&& externNormals)
     : bounds(_bounds),
       triangles(externTriangles),
-      vertices(externVertices)
+      vertices(externVertices),
+      normals(externNormals)
   {}
 
   embree_utils::Vec3fa normal(const Intersection& intersection, const embree_utils::Vec3fa&) const override {
-    // Record the normal for the current nearest triangle:
-    const auto& tri = triangles[intersection.primID];
-    const auto& p0 = vertices[tri.v0];
-    const auto& p1 = vertices[tri.v1];
-    const auto& p2 = vertices[tri.v2];
-    return (p1 - p0).cross(p2 - p0).normalized();
+    // For triangle meshes the intersection already contains the normal:
+    return intersection.normal;
   }
 
   embree_utils::Bounds3d getTriangleBoundingBox(std::uint32_t primID) const {
@@ -62,14 +66,19 @@ struct TriangleMesh : Primitive {
   Intersection intersect(const embree_utils::Ray& ray) const {
     const RayShearParams transform(ray);
     Intersection result(std::numeric_limits<float>::infinity(), nullptr);
-
+    TriangleIntersection closestTri;
     for (auto primID = 0u; primID < triangles.size(); ++primID) {
-      const float t = intersectTriangle(primID, transform, result.t);
-      if (t > 0.f && t < result.t) {
+      const auto triIntersect = intersectTriangle(primID, transform, result.t);
+      if (triIntersect.t > 0.f && triIntersect.t < result.t) {
         result.primID = primID;
-        result.t = t;
+        result.t = triIntersect.t;
         result.prim = this;
+        closestTri = triIntersect;
       }
+    }
+
+    if (result.primID != Intersection::InvalidPrimId) {
+      result.normal = computeNormal(closestTri, result);
     }
 
     return result;
@@ -80,14 +89,35 @@ struct TriangleMesh : Primitive {
     const RayShearParams transform(ray);
     Intersection result(std::numeric_limits<float>::infinity(), nullptr);
 
-    const float t = intersectTriangle(primID, transform, result.t);
-    if (t > 0.f && t < result.t) {
+    const auto triIntersect = intersectTriangle(primID, transform, result.t);
+    if (triIntersect.t > 0.f && triIntersect.t < result.t) {
       result.primID = primID;
-      result.t = t;
+      result.t = triIntersect.t;
       result.prim = this;
+      result.normal = computeNormal(triIntersect, result);
     }
 
     return result;
+  }
+
+  // Compute normal by interpolation if the mesh has normals,
+  // otherwise calculate the triangle's normal from its vertices
+  // Intersection must contain a valid primID (check before calling):
+  embree_utils::Vec3fa computeNormal(const TriangleIntersection& triIntersect, const Intersection& result) const {
+    const auto& tri = triangles[result.primID];
+    if (normals.size() != vertices.size()) {
+      const auto& p0 = vertices[tri.v0];
+      const auto& p1 = vertices[tri.v1];
+      const auto& p2 = vertices[tri.v2];
+      return (p1 - p0).cross(p2 - p0).normalized();
+    } else {
+      const auto& n0 = normals[tri.v0];
+      const auto& n1 = normals[tri.v1];
+      const auto& n2 = normals[tri.v2];
+      return ((n0 * triIntersect.b0) +
+              (n1 * triIntersect.b1) +
+              (n2 * triIntersect.b2)).normalized();
+    }
   }
 
   embree_utils::Bounds3d getBoundingBox() const override {
@@ -101,11 +131,12 @@ struct TriangleMesh : Primitive {
     }
   }
 
-  float intersectTriangle(std::uint32_t index, const RayShearParams& transform, const float tFar) const;
+  TriangleIntersection intersectTriangle(std::uint32_t index, const RayShearParams& transform, const float tFar) const;
 
   embree_utils::Bounds3d bounds;
   Storage<Triangle> triangles;
   Storage<embree_utils::Vec3fa> vertices;
+  Storage<embree_utils::Vec3fa> normals;
 };
 
 #ifndef __IPU__

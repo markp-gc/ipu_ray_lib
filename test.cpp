@@ -191,10 +191,19 @@ std::vector<embree_utils::TraceResult> renderCPU(
   #pragma omp parallel for schedule(auto)
   for (auto s = 0u; s < sceneRef.meshInfo.size(); ++s) {
     const auto& info = sceneRef.meshInfo[s];
+
+    auto firstNormalIndex = 0u;
+    auto numNormals = 0u;
+    if (sceneRef.meshNormals.size()) {
+      // If scene has normals assume every mesh has normals:
+      firstNormalIndex = info.firstVertex;
+      numNormals = info.numVertices;
+    }
     meshes.emplace_back(
       embree_utils::Bounds3d(), // Don't actually need this bound box for rendering...
       ConstArrayRef(&sceneRef.meshTris[info.firstIndex], info.numTriangles),
-      ConstArrayRef(&sceneRef.meshVerts[info.firstVertex], info.numVertices)
+      ConstArrayRef(&sceneRef.meshVerts[info.firstVertex], info.numVertices),
+      ConstArrayRef(&sceneRef.meshNormals[firstNormalIndex], numNormals)
     );
   }
 
@@ -325,6 +334,7 @@ void addOptions(boost::program_options::options_description& desc) {
                 "(That library does not handle all formats well even if they are 'supported': "
                 "consult the Blender export guide in the README. "
                 "If no mesh file is specified the scene defaults to an built-in Cornell box scene.")
+  ("load-normals", po::bool_switch()->default_value(false), "When loading a mesh file normals are ignored by default (to save on-chip memory). If you use this flag they will be loaded (and interpolated).")
   ("box-only", po::bool_switch()->default_value(false), "If rendering the built-in scene only render the original Cornell box without extra elements.")
   ("visualise", po::value<std::string>()->default_value("rgb"), "Choose the render output values to test/visualise. One of [rgb, normal, hitpoint, tfar, color, id]")
   ("render-mode", po::value<std::string>()->default_value("path-trace"), "Choose type of render from [shadow-trace, path-trace]. To see result set visualise=rgb")
@@ -375,6 +385,10 @@ boost::program_options::variables_map parseOptions(int argc, char** argv, boost:
     const auto v = renderStrMap.at(str);
   } catch (const std::exception& e) {
     throw po::validation_error(po::validation_error::invalid_option_value, "render-mode");
+  }
+
+  if (vm.at("mesh-file").as<std::string>().empty() && vm.at("load-normals").as<bool>()) {
+    throw std::runtime_error("Option 'load-normals' is not valid without the 'mesh-file' option.");
   }
 
   po::notify(vm);
@@ -428,6 +442,7 @@ int main(int argc, char** argv) {
     ConstArrayRef(customScene.meshInfo),
     ConstArrayRef(customScene.meshTris),
     ConstArrayRef(customScene.meshVerts),
+    ConstArrayRef(customScene.meshNormals),
     ConstArrayRef(customScene.matIDs),
     ConstArrayRef(customScene.materials),
     ConstArrayRef(customScene.bvhNodes),

@@ -257,8 +257,8 @@ SceneDescription buildSceneDescription(const boost::program_options::variables_m
     meshFile = "../assets/monkey_bust.glb";
     scene = makeCornellBoxScene(meshFile, args["box-only"].as<bool>());
   } else {
-    // Otherwise load only the scene
-    scene = importScene(meshFile);
+    // Otherwise load only the scene:
+    scene = importScene(meshFile, args["load-normals"].as<bool>());
   }
 
   if (args["render-mode"].as<std::string>() == "path-trace") {
@@ -281,8 +281,8 @@ std::pair<SceneData, embree_utils::EmbreeScene> buildSceneData(const SceneDescri
   SceneData data;
 
   // We need a compact representation for multiple meshes that we can transfer
-  // to the device easily. Append all the triangle buffer indices and vertex
-  // indices into unified arrays:
+  // to the device easily. Append all the triangle buffer indices, vertices,
+  // and normals into unified arrays:
   data.meshInfo.reserve(scene.meshes.size());
   for (const auto& m : scene.meshes) {
     data.meshInfo.emplace_back(
@@ -297,6 +297,9 @@ std::pair<SceneData, embree_utils::EmbreeScene> buildSceneData(const SceneDescri
     }
     for (const auto& v : m.vertices) {
       data.meshVerts.push_back(v);
+    }
+    for (const auto& n : m.normals) {
+      data.meshNormals.push_back(n);
     }
   }
 

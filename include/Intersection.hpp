@@ -30,4 +30,5 @@ struct Intersection {
   std::uint32_t primID; // Primitive ID at intersection == InvalidPrimId if no intersection
   float t; // ray parameter at intersection, <= 0.f if no intersection
   const Primitive* prim; // Pointer to the primitive that was hit
+  embree_utils::Vec3fa normal;
 };

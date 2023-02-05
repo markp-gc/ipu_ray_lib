@@ -4,7 +4,8 @@
 #include <Mesh.hpp>
 
 template <template<class T> class Storage>
-float TriangleMesh<Storage>::intersectTriangle(std::uint32_t index, const RayShearParams& transform, const float tFar) const {
+TriangleIntersection
+TriangleMesh<Storage>::intersectTriangle(std::uint32_t index, const RayShearParams& transform, const float tFar) const {
   // Get the triangles vertices:
   const auto& tri = triangles[index];
   const auto& p0 = vertices[tri.v0];
@@ -37,12 +38,12 @@ float TriangleMesh<Storage>::intersectTriangle(std::uint32_t index, const RayShe
   // Perform triangle edge and determinant tests
   if ((e0 < 0 || e1 < 0 || e2 < 0) &&
       (e0 > 0 || e1 > 0 || e2 > 0)) {
-    return 0.f;
+    return TriangleIntersection{0.f, 0.f, 0.f, 0.f};
   }
 
   auto det = e0 + e1 + e2;
   if (det == 0) {
-    return 0.f;
+    return TriangleIntersection{0.f, 0.f, 0.f, 0.f};
   }
 
   // Compute scaled hit distance to triangle and test against ray $t$ range
@@ -51,9 +52,9 @@ float TriangleMesh<Storage>::intersectTriangle(std::uint32_t index, const RayShe
   p2t.z *= transform.sz;
   auto tScaled = e0 * p0t.z + e1 * p1t.z + e2 * p2t.z;
   if (det < 0.f && (tScaled >= 0.f || tScaled < tFar * det)) {
-    return 0.f;
+    return TriangleIntersection{0.f, 0.f, 0.f, 0.f};
   } else if (det > 0.f && (tScaled <= 0.f || tScaled > tFar * det)) {
-    return 0.f;
+    return TriangleIntersection{0.f, 0.f, 0.f, 0.f};
   }
 
   // Compute barycentric coordinates and $t$ value for triangle intersection
@@ -82,9 +83,9 @@ float TriangleMesh<Storage>::intersectTriangle(std::uint32_t index, const RayShe
   auto deltaT = 3 *
                   (gamma(3) * maxE * maxZt + deltaE * maxZt + deltaZ * maxE) *
                   std::abs(invDet);
-  if (t <= deltaT) return 0.f;
+  if (t <= deltaT) return TriangleIntersection{0.f, b0, b1, b2};
 
-  return t;
+  return TriangleIntersection{t, b0, b1, b2};
 }
 
 template struct TriangleMesh<ConstArrayRef>;

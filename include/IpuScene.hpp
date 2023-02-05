@@ -37,6 +37,7 @@ public:
       meshInfoVar("mesh_info"),
       indexBufferVar("index_buffer"),
       vertexBufferVar("vertex_buffer"),
+      normalBufferVar("normal_buffer"),
       matIDsVar("matIDs"),
       materialsVar("materials"),
       bvhNodesVar("bvhNodesVar"),
@@ -76,6 +77,7 @@ private:
   ipu_utils::StreamableTensor meshInfoVar;
   ipu_utils::StreamableTensor indexBufferVar;
   ipu_utils::StreamableTensor vertexBufferVar;
+  ipu_utils::StreamableTensor normalBufferVar;
 
   // SceneRef data:
   ipu_utils::StreamableTensor matIDsVar;

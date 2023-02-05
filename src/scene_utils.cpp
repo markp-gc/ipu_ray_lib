@@ -10,9 +10,15 @@
 #include <assimp/postprocess.h>
 
 
-void transform(HostTriangleMesh& mesh, std::function<void(embree_utils::Vec3fa&)>&& tf) {
+void transform(HostTriangleMesh& mesh,
+               std::function<void(embree_utils::Vec3fa&)>&& tfVerts,
+               std::function<void(embree_utils::Vec3fa&)>&& tfNormals) {
   for (auto& v : mesh.vertices) {
-    tf(v);
+    tfVerts(v);
+  }
+
+  for (auto& n : mesh.normals) {
+    tfNormals(n);
   }
 
   mesh.updateBoundingBox();
@@ -48,11 +54,56 @@ HostTriangleMesh makeGroundPlane(const embree_utils::Vec3fa& pos, float scale) {
   return mesh;
 }
 
+// Copy mesh data from aiScene data structure into ours:
+void getMeshes(const aiScene* aiFile, std::vector<HostTriangleMesh>& meshes, std::vector<std::uint32_t>& matIDs, bool loadNormals) {
+  // Get meshes:
+  meshes.reserve(meshes.size() + aiFile->mNumMeshes);
+  matIDs.reserve(matIDs.size() + aiFile->mNumMeshes);
+  std::uint32_t faceCount = 0;
+
+  for (auto m = 0u; m < aiFile->mNumMeshes; ++m) {
+    auto& mesh = *aiFile->mMeshes[m];
+    auto& mat = *aiFile->mMaterials[mesh.mMaterialIndex];
+    matIDs.push_back(mesh.mMaterialIndex);
+    ipu_utils::logger()->debug("Mesh {} '{}' has {} faces. Material: {} '{}'", m, mesh.mName.C_Str(), mesh.mNumFaces, mesh.mMaterialIndex, mat.GetName().C_Str());
+    faceCount += mesh.mNumFaces;
+
+    meshes.push_back(HostTriangleMesh());
+    auto& hostMesh = meshes.back();
+    for (auto f = 0u; f < mesh.mNumFaces; ++f) {
+      const auto& face = mesh.mFaces[f];
+      if (face.mNumIndices != 3) {
+        throw std::runtime_error("Only triangle meshes are supported.");
+      }
+      hostMesh.triangles.push_back(Triangle(face.mIndices[0], face.mIndices[1], face.mIndices[2]));
+    }
+    for (auto v = 0u; v < mesh.mNumVertices; ++v) {
+      auto& vert = mesh.mVertices[v];
+      hostMesh.vertices.push_back(embree_utils::Vec3fa(vert[0], vert[1], vert[2]));
+    }
+    if (loadNormals && mesh.HasNormals()) {
+      ipu_utils::logger()->debug("Loading normals for mesh {} '{}'", m, mesh.mName.C_Str());
+      for (auto v = 0u; v < mesh.mNumVertices; ++v) {
+        auto& n = mesh.mNormals[v];
+        hostMesh.normals.push_back(embree_utils::Vec3fa(n[0], n[1], n[2]));
+      }
+    } else {
+      ipu_utils::logger()->debug("No normals loaded for mesh {} '{}'", m, mesh.mName.C_Str());
+    }
+    hostMesh.updateBoundingBox();
+    ipu_utils::logger()->debug("Bounding box for mesh {}: {} {} {} -> {} {} {}", m,
+      hostMesh.getBoundingBox().min.x, hostMesh.getBoundingBox().min.y, hostMesh.getBoundingBox().min.z,
+      hostMesh.getBoundingBox().max.x, hostMesh.getBoundingBox().max.y, hostMesh.getBoundingBox().max.z);
+  }
+
+  ipu_utils::logger()->info("Loaded {} faces.", faceCount);
+}
+
 void importMesh(std::string& filename, std::vector<HostTriangleMesh>& meshes) {
   // Load a mesh:
   if (!filename.empty()) {
     Assimp::Importer importer;
-    const auto* scene = importer.ReadFile(filename,
+    const auto* aiFile = importer.ReadFile(filename,
       aiProcess_PreTransformVertices   |
       aiProcess_OptimizeMeshes         |
       aiProcess_CalcTangentSpace       |
@@ -60,51 +111,45 @@ void importMesh(std::string& filename, std::vector<HostTriangleMesh>& meshes) {
       aiProcess_JoinIdenticalVertices  |
       aiProcess_SortByPType);
 
-    if (scene) {
-      ipu_utils::logger()->info("Found {} meshes in file '{}'.", scene->mNumMeshes, filename);
-      for (auto m = 0u; m < scene->mNumMeshes; ++m) {
-        auto& mesh = *scene->mMeshes[m];
-        ipu_utils::logger()->debug("Mesh {} has {} faces.", m, mesh.mNumFaces);
-        meshes.push_back(HostTriangleMesh());
-        auto& hostMesh = meshes.back();
-        for (auto f = 0u; f < mesh.mNumFaces; ++f) {
-          const auto& face = mesh.mFaces[f];
-          if (face.mNumIndices != 3) {
-            throw std::runtime_error("Only triangle meshes are supported.");
-          }
-          hostMesh.triangles.push_back(Triangle(face.mIndices[0], face.mIndices[1], face.mIndices[2]));
-        }
-        for (auto v = 0u; v < mesh.mNumVertices; ++v) {
-          auto& vert = mesh.mVertices[v];
-          hostMesh.vertices.push_back(embree_utils::Vec3fa(vert[0], vert[1], vert[2]));
-        }
-        hostMesh.updateBoundingBox();
-        ipu_utils::logger()->debug("Bounding box for mesh {}: {} {} {} -> {} {} {}", m,
-          hostMesh.getBoundingBox().min.x, hostMesh.getBoundingBox().min.y, hostMesh.getBoundingBox().min.z,
-          hostMesh.getBoundingBox().max.x, hostMesh.getBoundingBox().max.y, hostMesh.getBoundingBox().max.z);
-        // NOTE: Transform hardcoded for monkey bust mesh:
+    if (aiFile) {
+      // Get meshes from the file:
+      ipu_utils::logger()->info("Found {} meshes in file '{}'.", aiFile->mNumMeshes, filename);
+      std::vector<HostTriangleMesh> importedMeshes;
+      std::vector<std::uint32_t> importedMatIds;
+      const bool loadNormals = false;
+      getMeshes(aiFile, importedMeshes, importedMatIds, loadNormals);
+
+      // Apply hardcoded transforms to position the monkey bust mesh and then append
+      // the transformed meshes to existing meshes:
+      for (auto& hostMesh : importedMeshes) {
         // Scale mesh to reasonable scale for box scene and place on short box:
         auto diag = hostMesh.getBoundingBox().max - hostMesh.getBoundingBox().min;
         auto scale = 175.f / std::sqrt(diag.squaredNorm());
-        transform(hostMesh,[&](embree_utils::Vec3fa& v){
-          v.x = -v.x;
-          v.z = -v.z; // Rotate 180 so monkey faces camera
-          v *= scale; // Scale
-          v += embree_utils::Vec3fa(210, 165, 160); // Translate to top of box
-        });
-        hostMesh.updateBoundingBox();
-        ipu_utils::logger()->debug("Bounding box for mesh {} after scaling: {} {} {} -> {} {} {}", m,
-          hostMesh.getBoundingBox().min.x, hostMesh.getBoundingBox().min.y, hostMesh.getBoundingBox().min.z,
-          hostMesh.getBoundingBox().max.x, hostMesh.getBoundingBox().max.y, hostMesh.getBoundingBox().max.z);
+        transform(hostMesh,
+          [&](embree_utils::Vec3fa& v) {
+            v.x = -v.x;
+            v.z = -v.z; // Rotate 180 so monkey faces camera
+            v *= scale; // Scale
+            v += embree_utils::Vec3fa(210, 165, 160); // Translate to top of box
+          },
+          [&](embree_utils::Vec3fa& n) {
+            // Inverse transpose rotation happens to be same:
+            n.x = -n.x;
+            n.z = -n.z;
+          }
+        );
+
+        meshes.push_back(hostMesh);
       }
+
     } else  {
       throw std::runtime_error(importer.GetErrorString());
     }
   }
 }
 
-// Load a complete scene from GLTF.
-SceneDescription importScene(std::string& filename) {
+// Load a complete scene with camera attempting to reinterpret materials:
+SceneDescription importScene(std::string& filename, bool loadNormals) {
   SceneDescription scene;
 
   Assimp::Importer importer;
@@ -236,53 +281,36 @@ SceneDescription importScene(std::string& filename) {
     }
   }
 
-  // Get meshes:
-  scene.meshes.reserve(aiFile->mNumMeshes);
-  scene.matIDs.reserve(aiFile->mNumMeshes);
-  std::uint32_t faceCount = 0;
-
-  for (auto m = 0u; m < aiFile->mNumMeshes; ++m) {
-    auto& mesh = *aiFile->mMeshes[m];
-    auto& mat = *aiFile->mMaterials[mesh.mMaterialIndex];
-    scene.matIDs.push_back(mesh.mMaterialIndex);
-    ipu_utils::logger()->debug("Mesh {} '{}' has {} faces. Material: {} '{}'", m, mesh.mName.C_Str(), mesh.mNumFaces, mesh.mMaterialIndex, mat.GetName().C_Str());
-    faceCount += mesh.mNumFaces;
-
-    scene.meshes.push_back(HostTriangleMesh());
-    auto& hostMesh = scene.meshes.back();
-    for (auto f = 0u; f < mesh.mNumFaces; ++f) {
-      const auto& face = mesh.mFaces[f];
-      if (face.mNumIndices != 3) {
-        throw std::runtime_error("Only triangle meshes are supported.");
-      }
-      hostMesh.triangles.push_back(Triangle(face.mIndices[0], face.mIndices[1], face.mIndices[2]));
-    }
-    for (auto v = 0u; v < mesh.mNumVertices; ++v) {
-      auto& vert = mesh.mVertices[v];
-      hostMesh.vertices.push_back(embree_utils::Vec3fa(vert[0], vert[1], vert[2]));
-    }
-    hostMesh.updateBoundingBox();
-    ipu_utils::logger()->debug("Bounding box for mesh {}: {} {} {} -> {} {} {}", m,
-      hostMesh.getBoundingBox().min.x, hostMesh.getBoundingBox().min.y, hostMesh.getBoundingBox().min.z,
-      hostMesh.getBoundingBox().max.x, hostMesh.getBoundingBox().max.y, hostMesh.getBoundingBox().max.z);
-  }
-
-  ipu_utils::logger()->info("Loaded {} faces.", faceCount);
+  getMeshes(aiFile, scene.meshes, scene.matIDs, loadNormals);
 
   // Transform scene so camera is at origin looking straight down -z axis:
-  aiMatrix4x4t cm(
+  aiMatrix4x4t<float> cm(
     scene.camera.matrix[0], scene.camera.matrix[1], scene.camera.matrix[2], scene.camera.matrix[3],
     scene.camera.matrix[4], scene.camera.matrix[5], scene.camera.matrix[6], scene.camera.matrix[7],
     scene.camera.matrix[8], scene.camera.matrix[9], scene.camera.matrix[10], scene.camera.matrix[11],
     scene.camera.matrix[12], scene.camera.matrix[13], scene.camera.matrix[14], scene.camera.matrix[15]);
 
-  auto tf = [&](embree_utils::Vec3fa& v) {
+  // Extract the inverse transpose rotation to transform mesh normals:
+  aiMatrix4x4t<float> cmInvT = cm;
+  aiVector3t<float> scaling;
+  aiQuaterniont<float> rotation;
+  aiVector3t<float> translation;
+  cmInvT.Inverse();
+  cmInvT.Transpose();
+  cmInvT.Decompose(scaling, rotation, translation);
+
+  auto tfv = [&](embree_utils::Vec3fa& v) {
     auto p = cm * aiVector3D(v.x, v.y, v.z);
     v = embree_utils::Vec3fa(-p.x, p.y, -p.z); // Swap handedness
   };
 
+  auto tfn = [&](embree_utils::Vec3fa& n) {
+    auto p = rotation.Rotate(aiVector3D(n.x, n.y, n.z));
+    n = embree_utils::Vec3fa(-p.x, p.y, -p.z); // Swap handedness
+  };
+
   for (auto& m : scene.meshes) {
-    transform(m, tf);
+    transform(m, tfv, tfn);
   }
 
   return scene;
@@ -446,14 +474,18 @@ SceneDescription makeCornellBoxScene(std::string& meshFile, bool boxOnly) {
 
   // Transform scene so camera is at origin and change handedness of coordinate system:
   embree_utils::Vec3fa cameraPosition(278, 273, -800); // From Cornell spec.
-  auto tf = [&](embree_utils::Vec3fa& v) {
+  auto tfv = [&](embree_utils::Vec3fa& v) {
     v -= cameraPosition;
     v.x = -v.x;
     v.z = -v.z;
   };
 
+  auto tfn = [&](embree_utils::Vec3fa& n) {
+    // Normals are disabled for built int scene
+  };
+
   for (auto& m : scene.meshes) {
-    transform(m, tf);
+    transform(m, tfv, tfn);
   }
 
   for (auto& s : scene.spheres) {

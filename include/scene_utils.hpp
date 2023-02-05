@@ -38,13 +38,14 @@ struct SceneDescription {
   std::vector<std::uint32_t> matIDs;
 
   Camera camera;
-  float shadowRayOffset;
-
   std::unique_ptr<PathTraceSettings> pathTrace;
 };
 
-/// Apply a lambda function to every vertex in mesh:
-void transform(HostTriangleMesh& mesh, std::function<void(embree_utils::Vec3fa&)>&& tf);
+/// Apply a lambda functions to every vertex and normal in mesh,
+/// then recompute bounding box:
+void transform(HostTriangleMesh& mesh,
+               std::function<void(embree_utils::Vec3fa&)>&& tfVerts,
+               std::function<void(embree_utils::Vec3fa&)>&& tfNormals);
 
 // Functions to build box via code:
 void addQuad(HostTriangleMesh& mesh, const std::vector<embree_utils::Vec3fa>& verts);
@@ -53,4 +54,4 @@ HostTriangleMesh makeCornellShortBlock();
 HostTriangleMesh makeCornellTallBlock();
 SceneDescription makeCornellBoxScene(std::string& meshFile, bool boxOnly);
 
-SceneDescription importScene(std::string& filename);
+SceneDescription importScene(std::string& filename, bool loadNormals);

@@ -141,6 +141,7 @@ void IpuScene::createComputeVars(poplar::Graph& computeGraph,
   // be serialised to IPU?
   indexBufferVar.buildTensor(computeGraph, poplar::UNSIGNED_CHAR, {numComputeTiles, data.meshTris.size() * sizeof(Triangle)});
   vertexBufferVar.buildTensor(computeGraph, poplar::UNSIGNED_CHAR, {numComputeTiles, data.meshVerts.size() * sizeof(embree_utils::Vec3fa)});
+  normalBufferVar.buildTensor(computeGraph, poplar::UNSIGNED_CHAR, {numComputeTiles, data.meshNormals.size() * sizeof(embree_utils::Vec3fa)});
 
   // Scene ref streamable data:
   matIDsVar.buildTensor(computeGraph, poplar::UNSIGNED_INT, {numComputeTiles, data.matIDs.size()});
@@ -153,6 +154,7 @@ void IpuScene::createComputeVars(poplar::Graph& computeGraph,
   ipu_utils::logger()->debug("BVH nodes: {} bytes per tile", data.bvhNodes.size() * sizeof(CompactBVH2Node));
   ipu_utils::logger()->debug("Index buffer: {} bytes per tile", data.meshTris.size() * sizeof(Triangle));
   ipu_utils::logger()->debug("Vertex buffer: {} bytes per tile", data.meshVerts.size() * sizeof(embree_utils::Vec3fa));
+  ipu_utils::logger()->debug("Normal buffer: {} bytes per tile", data.meshNormals.size() * sizeof(embree_utils::Vec3fa));
 
   // The scene data vars get uploaded once by the host and then broadcast to every
   // tile so we store them in a separate map.
@@ -167,6 +169,7 @@ void IpuScene::createComputeVars(poplar::Graph& computeGraph,
     {"discs", discsVar.get()},
     {"meshInfo", meshInfoVar.get()},
     {"verts", vertexBufferVar.get()},
+    {"normals", normalBufferVar.get()},
     {"tris", indexBufferVar.get()},
     {"matIDs", matIDsVar.get()},
     {"materials", materialsVar.get()},
@@ -266,6 +269,7 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
     computeGraph.connect(initBuildVertex["meshInfo"], sceneDataVars["meshInfo"][t]);
     computeGraph.connect(initBuildVertex["tris"], sceneDataVars["tris"][t]);
     computeGraph.connect(initBuildVertex["verts"], sceneDataVars["verts"][t]);
+    computeGraph.connect(initBuildVertex["normals"], sceneDataVars["normals"][t]);
     computeGraph.connect(initBuildVertex["meshes"], sceneDataVars["meshes"][t]);
 
     // Ray tracing:
@@ -297,6 +301,7 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
     computeGraph.connect(rayTraceVertex["meshes"], sceneDataVars["meshes"][t]);
     computeGraph.connect(rayTraceVertex["tris"], sceneDataVars["tris"][t]);
     computeGraph.connect(rayTraceVertex["verts"], sceneDataVars["verts"][t]);
+    computeGraph.connect(rayTraceVertex["normals"], sceneDataVars["normals"][t]);
     computeGraph.connect(rayTraceVertex["geometry"], sceneDataVars["geometry"][t]);
     computeGraph.connect(rayTraceVertex["matIDs"], sceneDataVars["matIDs"][t]);
     computeGraph.connect(rayTraceVertex["materials"], sceneDataVars["materials"][t]);
@@ -329,6 +334,7 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
     discsVar.buildSlicedWrite(computeGraph, 0, optimiseMemUse),
     meshInfoVar.buildSlicedWrite(computeGraph, 0, optimiseMemUse),
     vertexBufferVar.buildSlicedWrite(computeGraph, 0, optimiseMemUse),
+    normalBufferVar.buildSlicedWrite(computeGraph, 0, optimiseMemUse),
     indexBufferVar.buildSlicedWrite(computeGraph, 0, optimiseMemUse),
     matIDsVar.buildSlicedWrite(computeGraph, 0, optimiseMemUse),
     materialsVar.buildSlicedWrite(computeGraph, 0, optimiseMemUse),
@@ -450,8 +456,9 @@ void IpuScene::execute(poplar::Engine& engine, const poplar::Device& device) {
   // by rebuilding the object before using it in the codelet:
   meshInfoVar.connectWriteStream(engine, (void*)data.meshInfo.cbegin());
   // This is the data that the above object needs to point to:
-  vertexBufferVar.connectWriteStream(engine, (void*)data.meshVerts.cbegin());
   indexBufferVar.connectWriteStream(engine, (void*)data.meshTris.cbegin());
+  vertexBufferVar.connectWriteStream(engine, (void*)data.meshVerts.cbegin());
+  normalBufferVar.connectWriteStream(engine, (void*)data.meshNormals.cbegin());
 
   // Streams for SceneRef data:
   matIDsVar.connectWriteStream(engine, (void*)data.matIDs.cbegin());
