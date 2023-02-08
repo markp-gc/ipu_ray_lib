@@ -9,7 +9,7 @@ This project is a redesign of an experimental ray/path-tracer for IPU (old versi
 The simplest way to experiment with the renderer is by launching a pre-built docker container on a cloud service.
 Paperspace, for example, provides free IPU-POD4 machines. Click this link and follow the instructions in the README.ipynb notebook:
 
-[<img src="https://assets.paperspace.io/img/gradient-badge.svg" width="200"/>](https://console.paperspace.com/github/markp-gc/gradient_poplar_raytracer?container=mpupilli/poplar_paperspace&machine=Free-IPU-POD4&file=README.ipynb)
+[<img src="images/gradient-badge.svg" width="200"/>](https://console.paperspace.com/github/markp-gc/gradient_poplar_raytracer?container=mpupilli/poplar_paperspace&machine=Free-IPU-POD4&file=README.ipynb)
 
 (Using this method you do not have to worry about installing the right apt packages or configuring the IPU-POD.)
 
