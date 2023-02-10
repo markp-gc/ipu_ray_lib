@@ -8,6 +8,7 @@
 #include <popops/ElementWise.hpp>
 #include <popops/codelets.hpp>
 #include <gcl/TileAllocation.hpp>
+#include <poputil/TileMapping.hpp>
 #include <popops/Loop.hpp>
 #include <poprand/RandomGen.hpp>
 #include <poprand/codelets.hpp>
@@ -126,28 +127,32 @@ IpuScene::createRayBatches(const poplar::Device& device, std::size_t numComputeT
   return rayBatches;
 }
 
-void IpuScene::createComputeVars(poplar::Graph& computeGraph,
+/// Create variables in the I/O graph to receive scene data. During initialisation
+/// The first tile in the I/O graph receives the data then broadcasts it to all
+/// the tiles in the copute graph.
+void IpuScene::createComputeVars(poplar::Graph& ioGraph,
+                                 poplar::Graph& computeGraph,
                                  std::size_t numComputeTiles,
                                  std::size_t perTileRayBufferSize) {
   // Add a variable to hold each primitive type:
-  geometryVar.buildTensor(computeGraph, poplar::UNSIGNED_CHAR, {numComputeTiles, data.geometry.size() * sizeof(GeomRef)}),
-  spheresVar.buildTensor(computeGraph, poplar::UNSIGNED_CHAR, {numComputeTiles, spheres.size() * sizeof(Sphere)});
-  discsVar.buildTensor(computeGraph, poplar::UNSIGNED_CHAR, {numComputeTiles, discs.size() * sizeof(Disc)});
-  meshInfoVar.buildTensor(computeGraph, poplar::UNSIGNED_CHAR, {numComputeTiles, data.meshInfo.size() * sizeof(MeshInfo)});
+  geometryVar.buildTensor(ioGraph, poplar::UNSIGNED_CHAR, {data.geometry.size() * sizeof(GeomRef)}),
+  spheresVar.buildTensor(ioGraph, poplar::UNSIGNED_CHAR, {spheres.size() * sizeof(Sphere)});
+  discsVar.buildTensor(ioGraph, poplar::UNSIGNED_CHAR, {discs.size() * sizeof(Disc)});
+  meshInfoVar.buildTensor(ioGraph, poplar::UNSIGNED_CHAR, {data.meshInfo.size() * sizeof(MeshInfo)});
 
   // How to do this cleanly: if we had more than one mesh we need these vars for every single mesh.
   // Should there be one vert array shared between meshes? We also might want to load a scene with
   // different number of triangles into same graph program? Do we need a mesh manager object that should
   // be serialised to IPU?
-  indexBufferVar.buildTensor(computeGraph, poplar::UNSIGNED_CHAR, {numComputeTiles, data.meshTris.size() * sizeof(Triangle)});
-  vertexBufferVar.buildTensor(computeGraph, poplar::UNSIGNED_CHAR, {numComputeTiles, data.meshVerts.size() * sizeof(embree_utils::Vec3fa)});
-  normalBufferVar.buildTensor(computeGraph, poplar::UNSIGNED_CHAR, {numComputeTiles, data.meshNormals.size() * sizeof(embree_utils::Vec3fa)});
+  indexBufferVar.buildTensor(ioGraph, poplar::UNSIGNED_CHAR, {data.meshTris.size() * sizeof(Triangle)});
+  vertexBufferVar.buildTensor(ioGraph, poplar::UNSIGNED_CHAR, {data.meshVerts.size() * sizeof(embree_utils::Vec3fa)});
+  normalBufferVar.buildTensor(ioGraph, poplar::UNSIGNED_CHAR, {data.meshNormals.size() * sizeof(embree_utils::Vec3fa)});
 
   // Scene ref streamable data:
-  matIDsVar.buildTensor(computeGraph, poplar::UNSIGNED_INT, {numComputeTiles, data.matIDs.size()});
-  materialsVar.buildTensor(computeGraph, poplar::UNSIGNED_CHAR, {numComputeTiles, data.materials.size() * sizeof(Material)});
-  bvhNodesVar.buildTensor(computeGraph, poplar::UNSIGNED_CHAR, {numComputeTiles, data.bvhNodes.size() * sizeof(CompactBVH2Node)});
-  samplesPerPixel.buildTensor(computeGraph, poplar::UNSIGNED_INT, {numComputeTiles, 1u});
+  matIDsVar.buildTensor(ioGraph, poplar::UNSIGNED_INT, {data.matIDs.size()});
+  materialsVar.buildTensor(ioGraph, poplar::UNSIGNED_CHAR, {data.materials.size() * sizeof(Material)});
+  bvhNodesVar.buildTensor(ioGraph, poplar::UNSIGNED_CHAR, {data.bvhNodes.size() * sizeof(CompactBVH2Node)});
+  samplesPerPixel.buildTensor(ioGraph, poplar::UNSIGNED_INT, {1u});
 
   ipu_utils::logger()->debug("Geometry info: {} bytes per tile", data.geometry.size() * sizeof(GeomRef));
   ipu_utils::logger()->debug("Mesh info: {} bytes per tile", data.meshInfo.size() * sizeof(MeshInfo));
@@ -163,7 +168,7 @@ void IpuScene::createComputeVars(poplar::Graph& computeGraph,
   // data to be loaded piece by piece and for rays to be sorted and sent to tiles that already
   // contain the BVH chunk the rays are traversing next). For now having the separate tensors
   // makes debugging a bit easier as we can see the individual tensors in the profiler.
-  sceneDataVars = {
+  ioSceneVars = {
     {"geometry", geometryVar.get()},
     {"spheres", spheresVar.get()},
     {"discs", discsVar.get()},
@@ -175,12 +180,31 @@ void IpuScene::createComputeVars(poplar::Graph& computeGraph,
     {"materials", materialsVar.get()},
     {"bvhNodes", bvhNodesVar.get()},
     {"meshes", computeGraph.addVariable(poplar::UNSIGNED_CHAR,
-                                        {numComputeTiles, data.meshInfo.size() * sizeof(CompiledTriangleMesh)},
+                                        {data.meshInfo.size() * sizeof(CompiledTriangleMesh)},
                                         "tri_meshes")},
     {"samplesPerPixel", samplesPerPixel.get()}
   };
 
-  // Ray trace vars are distributed across tiles:
+  // Mapping the scene data linearly across I/O tiles
+  // is counter productive because it results in excessive
+  // exchange messages on the compute tiles so we map each
+  // var to its own tile (this won't scale):
+  auto tile = 0u;
+  for (auto& p : ioSceneVars) {
+    ioGraph.setTileMapping(p.second, tile);
+    tile += 1;
+    tile = tile % ioGraph.getTarget().getNumTiles();
+  }
+
+  // These tensors hold the scene data after it has been broadcast to every tile in the compute graph:
+  for (const auto& p : ioSceneVars) {
+    broadcastSceneVars.insert(std::make_pair(
+      p.first,
+      computeGraph.addVariable(p.second.elementType(), {numComputeTiles, p.second.numElements()}, p.first + "_broadcast"))
+    );
+  }
+
+  // Ray data is distributed across tiles:
   rayTraceVars = {
     {"rays", computeGraph.addVariable(poplar::UNSIGNED_CHAR, {numComputeTiles, perTileRayBufferSize}, "sram_ray_buffer")},
   };
@@ -215,7 +239,7 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
   popops::addCodelets(computeGraph);
   poprand::addCodelets(computeGraph);
 
-  createComputeVars(computeGraph, numComputeTiles, perTileRayBufferSize);
+  createComputeVars(ioGraph, computeGraph, numComputeTiles, perTileRayBufferSize);
 
   // Add remote buffer to store ray-batches:
   auto rayBatchesPerReplica = calcNumBatches(target, numComputeTiles) / getRuntimeConfig().numReplicas;
@@ -264,13 +288,13 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
     // some other data arrays are not reinitialised.
     auto initBuildVertex = computeGraph.addVertex(initCs, "BuildDataStructures");
     computeGraph.setTileMapping(initBuildVertex, t);
-    computeGraph.connect(initBuildVertex["spheres"], sceneDataVars["spheres"][t]);
-    computeGraph.connect(initBuildVertex["discs"], sceneDataVars["discs"][t]);
-    computeGraph.connect(initBuildVertex["meshInfo"], sceneDataVars["meshInfo"][t]);
-    computeGraph.connect(initBuildVertex["tris"], sceneDataVars["tris"][t]);
-    computeGraph.connect(initBuildVertex["verts"], sceneDataVars["verts"][t]);
-    computeGraph.connect(initBuildVertex["normals"], sceneDataVars["normals"][t]);
-    computeGraph.connect(initBuildVertex["meshes"], sceneDataVars["meshes"][t]);
+    computeGraph.connect(initBuildVertex["spheres"], broadcastSceneVars["spheres"][t]);
+    computeGraph.connect(initBuildVertex["discs"], broadcastSceneVars["discs"][t]);
+    computeGraph.connect(initBuildVertex["meshInfo"], broadcastSceneVars["meshInfo"][t]);
+    computeGraph.connect(initBuildVertex["tris"], broadcastSceneVars["tris"][t]);
+    computeGraph.connect(initBuildVertex["verts"], broadcastSceneVars["verts"][t]);
+    computeGraph.connect(initBuildVertex["normals"], broadcastSceneVars["normals"][t]);
+    computeGraph.connect(initBuildVertex["meshes"], broadcastSceneVars["meshes"][t]);
 
     // Ray tracing:
     // Choose between two ray trace modes at compile time.
@@ -283,7 +307,7 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
       computeGraph.setInitialValue(rayTraceVertex["imageHeight"], data.imageHeight);
       computeGraph.setInitialValue(rayTraceVertex["antiAliasScale"], data.antiAliasScale);
       computeGraph.setInitialValue(rayTraceVertex["fovRadians"], data.fovRadians);
-      computeGraph.connect(rayTraceVertex["samplesPerPixel"], samplesPerPixel.get()[t][0]);
+      computeGraph.connect(rayTraceVertex["samplesPerPixel"], broadcastSceneVars["samplesPerPixel"][t][0]);
     } else {
       rayTraceVertex = computeGraph.addVertex(traceCs, "ShadowTrace");
       computeGraph.setInitialValue(rayTraceVertex["ambientLightFactor"], .05f);
@@ -296,20 +320,20 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
     computeGraph.connect(rayTraceVertex["rays"], rayTraceVars["rays"][t]);
 
     computeGraph.setTileMapping(rayTraceVertex, t);
-    computeGraph.connect(rayTraceVertex["spheres"], sceneDataVars["spheres"][t]);
-    computeGraph.connect(rayTraceVertex["discs"], sceneDataVars["discs"][t]);
-    computeGraph.connect(rayTraceVertex["meshes"], sceneDataVars["meshes"][t]);
-    computeGraph.connect(rayTraceVertex["tris"], sceneDataVars["tris"][t]);
-    computeGraph.connect(rayTraceVertex["verts"], sceneDataVars["verts"][t]);
-    computeGraph.connect(rayTraceVertex["normals"], sceneDataVars["normals"][t]);
-    computeGraph.connect(rayTraceVertex["geometry"], sceneDataVars["geometry"][t]);
-    computeGraph.connect(rayTraceVertex["matIDs"], sceneDataVars["matIDs"][t]);
-    computeGraph.connect(rayTraceVertex["materials"], sceneDataVars["materials"][t]);
-    computeGraph.connect(rayTraceVertex["bvhNodes"], sceneDataVars["bvhNodes"][t]);
+    computeGraph.connect(rayTraceVertex["spheres"], broadcastSceneVars["spheres"][t]);
+    computeGraph.connect(rayTraceVertex["discs"], broadcastSceneVars["discs"][t]);
+    computeGraph.connect(rayTraceVertex["meshes"], broadcastSceneVars["meshes"][t]);
+    computeGraph.connect(rayTraceVertex["tris"], broadcastSceneVars["tris"][t]);
+    computeGraph.connect(rayTraceVertex["verts"], broadcastSceneVars["verts"][t]);
+    computeGraph.connect(rayTraceVertex["normals"], broadcastSceneVars["normals"][t]);
+    computeGraph.connect(rayTraceVertex["geometry"], broadcastSceneVars["geometry"][t]);
+    computeGraph.connect(rayTraceVertex["matIDs"], broadcastSceneVars["matIDs"][t]);
+    computeGraph.connect(rayTraceVertex["materials"], broadcastSceneVars["materials"][t]);
+    computeGraph.connect(rayTraceVertex["bvhNodes"], broadcastSceneVars["bvhNodes"][t]);
     computeGraph.setInitialValue(rayTraceVertex["maxLeafDepth"], data.maxLeafDepth);
 
     // Set tile mappings:
-    for (auto& p : sceneDataVars) {
+    for (auto& p : broadcastSceneVars) {
       computeGraph.setTileMapping(p.second[t], t);
     }
 
@@ -319,27 +343,38 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
   }
 
   // Add a program to broadcast the scene data to all compute tiles:
+  std::map<std::string, poplar::Tensor> varReceivingSlices;
+
+  ipu_utils::logger()->info("Building scene broadcast");
   poplar::program::Sequence broadcastSceneData;
-  for (auto& p : sceneDataVars) {
-    auto firstSlice = p.second[0]; // Data is received to this slice
-    auto numReceiving = p.second.dim(0) - 1;
-    auto broadcastData = firstSlice.reshape({1, firstSlice.numElements()}).broadcast(numReceiving, 0); // Create a broadcast view
-    broadcastSceneData.add(poplar::program::Copy(broadcastData, p.second.slice(1, p.second.dim(0), 0))); // Copy the broadcast view to the rest of the tiles
+  for (auto& p : ioSceneVars) {
+    auto src = p.second; // Data is received to this slice
+    auto dst = broadcastSceneVars.at(p.first);
+    auto numReceiving = dst.dim(0);
+    auto srcBroadcast = src.reshape({1, src.numElements()}).broadcast(numReceiving, 0); // Create a broadcast view
+    broadcastSceneData.add(poplar::program::Copy(srcBroadcast, dst)); // Copy the broadcast view to the rest of the tiles
   }
 
+  // Free up the space used to stream the scene data from the host:
+  for (auto& p : ioSceneVars) {
+    auto src = p.second; // Data is received to this slice
+    broadcastSceneData.add(poplar::program::WriteUndef(p.second, "undef_" + p.first)); // Copy the broadcast view to the rest of the tiles
+  }
+
+  ipu_utils::logger()->info("Building init sequence");
   poplar::program::Sequence init = {
     fpSetupProg(computeGraph),
-    spheresVar.buildSlicedWrite(computeGraph, 0, optimiseMemUse),
-    geometryVar.buildSlicedWrite(computeGraph, 0, optimiseMemUse),
-    discsVar.buildSlicedWrite(computeGraph, 0, optimiseMemUse),
-    meshInfoVar.buildSlicedWrite(computeGraph, 0, optimiseMemUse),
-    vertexBufferVar.buildSlicedWrite(computeGraph, 0, optimiseMemUse),
-    normalBufferVar.buildSlicedWrite(computeGraph, 0, optimiseMemUse),
-    indexBufferVar.buildSlicedWrite(computeGraph, 0, optimiseMemUse),
-    matIDsVar.buildSlicedWrite(computeGraph, 0, optimiseMemUse),
-    materialsVar.buildSlicedWrite(computeGraph, 0, optimiseMemUse),
-    bvhNodesVar.buildSlicedWrite(computeGraph, 0, optimiseMemUse),
-    samplesPerPixel.buildSlicedWrite(computeGraph, 0, optimiseMemUse),
+    spheresVar.buildWrite(computeGraph, optimiseMemUse),
+    geometryVar.buildWrite(computeGraph, optimiseMemUse),
+    discsVar.buildWrite(computeGraph, optimiseMemUse),
+    meshInfoVar.buildWrite(computeGraph, optimiseMemUse),
+    vertexBufferVar.buildWrite(computeGraph, optimiseMemUse),
+    normalBufferVar.buildWrite(computeGraph, optimiseMemUse),
+    indexBufferVar.buildWrite(computeGraph, optimiseMemUse),
+    matIDsVar.buildWrite(computeGraph, optimiseMemUse),
+    materialsVar.buildWrite(computeGraph, optimiseMemUse),
+    bvhNodesVar.buildWrite(computeGraph, optimiseMemUse),
+    samplesPerPixel.buildWrite(computeGraph, optimiseMemUse),
     broadcastSceneData
   };
 

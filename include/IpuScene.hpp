@@ -86,7 +86,8 @@ private:
 
   poplar::RemoteBuffer rayBuffer;
 
-  std::map<std::string, poplar::Tensor> sceneDataVars;
+  std::map<std::string, poplar::Tensor> ioSceneVars;
+  std::map<std::string, poplar::Tensor> broadcastSceneVars;
   std::map<std::string, poplar::Tensor> rayTraceVars;
 
   std::vector<std::vector<embree_utils::TraceResult>> rayBatches;
@@ -107,7 +108,8 @@ private:
   std::vector<std::vector<embree_utils::TraceResult>>
   createRayBatches(const poplar::Device& device, std::size_t numComputeTiles) const;
 
-  void createComputeVars(poplar::Graph& computeGraph,
+  void createComputeVars(poplar::Graph& ioGraph,
+                         poplar::Graph& computeGraph,
                          std::size_t numComputeTiles,
                          std::size_t sramRayBufferSize);
 };
