@@ -252,12 +252,12 @@ SceneDescription buildSceneDescription(const boost::program_options::variables_m
 
   SceneDescription scene;
   if (meshFile.empty()) {
-    // If no meshfile is provided the default to the box. In this case a
+    // If no meshfile is provided then default to the box. In this case a
     // hard coded mesh file is displayed using one of the boxes as a plinth:
     meshFile = "../assets/monkey_bust.glb";
     scene = makeCornellBoxScene(meshFile, args["box-only"].as<bool>());
   } else {
-    // Otherwise load only the scene:
+    // Otherwise load only the specified scene:
     scene = importScene(meshFile, args["load-normals"].as<bool>());
   }
 
@@ -330,6 +330,8 @@ std::pair<SceneData, embree_utils::EmbreeScene> buildSceneData(const SceneDescri
   data.materials = scene.materials;
   data.matIDs = scene.matIDs;
 
+  auto bvhStartTime = std::chrono::steady_clock::now();
+
   auto buildPrimitives = makeBuildPrimitivesForEmbree(data, scene);
 
   // Build our own BVH (still using Embree to build it):
@@ -341,6 +343,10 @@ std::pair<SceneData, embree_utils::EmbreeScene> buildSceneData(const SceneDescri
   data.bvhNodes = buildCompactBvh(builder.getRoot(), builder.nodeCount(), data.bvhMaxDepth);
   buildPrimitives.clear(); // Embree is done with this now so free the space
 
+  auto bvhEndTime = std::chrono::steady_clock::now();
+  auto bvhSecs = std::chrono::duration<double>(bvhEndTime - bvhStartTime).count();
+
+  ipu_utils::logger()->info("Compact BVH build time: {} seconds", bvhSecs);
   ipu_utils::logger()->debug("Max leaf depth in BVH: {}", data.bvhMaxDepth);
 
   return {data, embreeScene};
