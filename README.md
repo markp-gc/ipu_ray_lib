@@ -59,7 +59,7 @@ ninja -j64
 Ray data is distributed across all tiles (cores) but the scene data (BVH) is currently replicated across all tiles. This means meshes need to fit on one tile for now. You can specify your own scenes using the `--mesh-file` option. There is a built-in scene which is rendered if no file is specified:
 
 ```
-./test -w 1440 -h 1440 --render-mode path-trace --visualise rgb --samples 1000 --ipus 4 --ipu-only
+./trace -w 1440 -h 1440 --render-mode path-trace --visualise rgb --samples 1000 --ipus 4 --ipu-only
 ```
 
 After about 30 seconds this command will output an EXR image 'out_rgb_ipu.exr' in the build folder.
@@ -74,11 +74,11 @@ take much much longer to render.
 If you just want to compare AOVs between CPU/Embree/IPU you can
 change to a quicker render mode. E.g. to compare normals:
 ```
-./test -w 1440 -h 1440 --render-mode shadow-trace --visualise normal --ipus 4
+./trace -w 1440 -h 1440 --render-mode shadow-trace --visualise normal --ipus 4
 ```
 If you compare 'out_normal_cpu.exr', 'out_normal_embree.exr', and 'out_normal_ipu.exr' you should find they match closely.
 
-For a list of all command options see `./test --help`.
+For a list of all command options see `./trace --help`.
 
 #### Rendering Other Scenes
 
@@ -92,5 +92,5 @@ scenes by inspecting it. You can render the scene from the DAE file like this
 (turning on logging to see how materials are being interpreted):
 
 ```
-./test -w 1440 -h 1440 --render-mode path-trace --visualise rgb --samples 4000 --ipus 4 --ipu-only --mesh-file ../assets/test_scene.dae --load-normals --log-level debug
+./trace -w 1440 -h 1440 --render-mode path-trace --visualise rgb --samples 4000 --ipus 4 --ipu-only --mesh-file ../assets/test_scene.dae --load-normals --log-level debug
 ```

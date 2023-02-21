@@ -12,6 +12,7 @@ find_package(OpenMP REQUIRED)
 #find_package(embree 3.0 REQUIRED)
 find_package(assimp 5 REQUIRED)
 find_package(Eigen3 REQUIRED NO_MODULE)
+find_package(Boost COMPONENTS unit_test_framework REQUIRED)
 
 execute_process(COMMAND bash "-c" "popc --version | cut -d ' ' -f3 | head -1" OUTPUT_VARIABLE POPLAR_VERSION)
 string(REPLACE "." ";" VERSION_LIST ${POPLAR_VERSION})
@@ -36,10 +37,10 @@ FILE(GLOB_RECURSE IPU_RAYLIB_SRC ${CMAKE_SOURCE_DIR}/src/*.cpp ${CMAKE_SOURCE_DI
 add_library(ipu_ray_lib SHARED ${IPU_RAYLIB_SRC})
 target_include_directories(ipu_ray_lib PUBLIC ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/include/embree_utils)
 
-# Add a test executable:
-add_executable(test test.cpp TraceCodelets.gp)
-target_include_directories(test PUBLIC ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/include/embree_utils)
-target_link_libraries(test
+# Add a trace executable:
+add_executable(trace test.cpp TraceCodelets.gp)
+target_include_directories(trace PUBLIC ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/include/embree_utils)
+target_link_libraries(trace
   ipu_ray_lib
   #embree
   embree3
@@ -68,3 +69,8 @@ add_custom_command(
   OUTPUT TraceCodelets.gp
   WORKING_DIRECTORY ${CMAKE_BUILD_DIR}
 )
+
+# Tests
+add_executable(tests ${CMAKE_SOURCE_DIR}/tests/test.cpp)
+target_link_libraries(tests ipu_ray_lib ${Boost_UNIT_TEST_FRAMEWORK_LIBRARY})
+add_test(test1 tests)
