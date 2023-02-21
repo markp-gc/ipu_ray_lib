@@ -28,8 +28,7 @@ void updateHit(const Intersection& i, embree_utils::HitRecord& hit) {
 // per scene fixed ray epsilon. (The input ray should be in world coords).
 inline
 void offsetRay(embree_utils::Ray& r, const embree_utils::Vec3fa& n) {
-  float m = (1.f + r.origin.abs().maxc()) * rayEpsilon;
-  m = m * std::copysign(1.f, n.dot(r.direction));
+  const float m = (1.f + r.origin.abs().maxc()) * rayEpsilon * std::copysign(1.f, n.dot(r.direction));
   r.origin += (n * m);
 }
 

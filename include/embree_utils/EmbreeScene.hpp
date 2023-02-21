@@ -36,6 +36,7 @@ embree_utils::HitRecord convertHitRecord(const RTCRayHit& rh) {
     embree_utils::Vec3fa(rh.ray.org_x, rh.ray.org_y, rh.ray.org_z),
     embree_utils::Vec3fa(rh.ray.dir_x, rh.ray.dir_y, rh.ray.dir_z)
   );
+  hit.r.tMin = rh.ray.tnear;
   hit.r.tMax = rh.ray.tfar;
   hit.normal = embree_utils::Vec3fa(rh.hit.Ng_x, rh.hit.Ng_y, rh.hit.Ng_z).normalized();
   hit.geomID = rh.hit.geomID;
@@ -120,8 +121,8 @@ public:
     embree_utils::addTriMesh(device, scene, vertices, triIndices);
   }
 
-  void addDisc(const embree_utils::Vec3fa& pos, const embree_utils::Vec3fa& normal, float radius) {
-    embree_utils::addDisc(device, scene, pos, normal, radius);
+  void addDisc(const embree_utils::Vec3fa& normal, const embree_utils::Vec3fa& pos, float radius) {
+    embree_utils::addDisc(device, scene, normal, pos, radius);
   }
 };
 

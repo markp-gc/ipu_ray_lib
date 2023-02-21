@@ -97,6 +97,9 @@ unsigned visualiseHits(const std::vector<embree_utils::TraceResult>& rayStream, 
   };
   auto hpFunc = [&](const embree_utils::TraceResult& tr) {
     const auto& hit = tr.h;
+    if (hit.geomID == embree_utils::HitRecord::InvalidGeomID) {
+      return cv::Vec3f(0.f, 0.f, 0.f);
+    }
     return cv::Vec3f(hit.r.origin.z, hit.r.origin.y, hit.r.origin.x);
   };
 
@@ -324,7 +327,7 @@ std::pair<SceneData, embree_utils::EmbreeScene> buildSceneData(const SceneDescri
   for (auto i = 0u; i < scene.discs.size(); ++i) {
     auto& d = scene.discs[i];
     data.geometry.emplace_back(i, GeomType::Disc);
-    embreeScene.addDisc(embree_utils::Vec3fa(d.nx, d.ny, d.nz), embree_utils::Vec3fa(d.cx, d.cy, d.cz), d.r);
+    embreeScene.addDisc(embree_utils::Vec3fa(d.cx, d.cy, d.cz), embree_utils::Vec3fa(d.nx, d.ny, d.nz), d.r);
   }
 
   data.materials = scene.materials;

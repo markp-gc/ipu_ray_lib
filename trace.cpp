@@ -33,6 +33,12 @@ std::vector<embree_utils::TraceResult> renderEmbree(const SceneRef& data, embree
   #pragma omp parallel for schedule(auto)
   for (auto i = 0u; i < hitStream.size(); ++i) {
     auto& rh = hitStream[i];
+    if (std::isfinite(rh.ray.tfar)) {
+      // Advance ray origin to hit point:
+      rh.ray.org_x += rh.ray.dir_x * rh.ray.tfar;
+      rh.ray.org_y += rh.ray.dir_y * rh.ray.tfar;
+      rh.ray.org_z += rh.ray.dir_z * rh.ray.tfar;
+    }
     rayStream[i].h = convertHitRecord(rh);
   }
 
@@ -41,39 +47,33 @@ std::vector<embree_utils::TraceResult> renderEmbree(const SceneRef& data, embree
   #pragma omp parallel for schedule(auto)
   for (auto r = 0u; r < hitStream.size(); ++r) {
     auto& rh = hitStream[r];
-    // advance origin to hit point
-    if (std::isfinite(rh.ray.tfar)) {
-      rh.ray.org_x += rh.ray.dir_x * rh.ray.tfar;
-      rh.ray.org_y += rh.ray.dir_y * rh.ray.tfar;
-      rh.ray.org_z += rh.ray.dir_z * rh.ray.tfar;
 
-      // offset ray to avoid self intersections:
-      const float absx = std::abs(rh.ray.org_x);
-      const float absy = std::abs(rh.ray.org_y);
-      const float absz = std::abs(rh.ray.org_z);
-      const float maxc = std::max(std::max(absx, absy), absz);
-      const float ndotd = (rh.ray.dir_x * rh.hit.Ng_x) + (rh.ray.dir_y * rh.hit.Ng_y) + ((rh.ray.dir_z * rh.hit.Ng_z));
-      float m = (1.f + maxc) * rayEpsilon;
-      m = m * std::copysign(1.f, ndotd);
-      rh.ray.org_x += rh.hit.Ng_x * m;
-      rh.ray.org_x += rh.hit.Ng_y * m;
-      rh.ray.org_x += rh.hit.Ng_z * m;
+    // Setup ray for an occlusion query (point ray at light):
+    float dx = light.x - rh.ray.org_x;
+    float dy = light.y - rh.ray.org_y;
+    float dz = light.z - rh.ray.org_z;
+    float d = std::sqrt(dx*dx + dy*dy + dz*dz);
+    float norm = 1.f / d;
+    rh.ray.dir_x = dx * norm;
+    rh.ray.dir_y = dy * norm;
+    rh.ray.dir_z = dz * norm;
+    rh.ray.tnear = 0.f;
+    rh.ray.tfar = d;
 
-      // Setup ray for an occlusion query:
-      // point ray at light:
-      float dx = light.x - rh.ray.org_x;
-      float dy = light.y - rh.ray.org_y;
-      float dz = light.z - rh.ray.org_z;
-      float d = std::sqrt(dx*dx + dy*dy + dz*dz);
-      float norm = 1.f / d;
-      rh.ray.dir_x = dx * norm;
-      rh.ray.dir_y = dy * norm;
-      rh.ray.dir_z = dz * norm;
-      rh.ray.tnear = 0.f;
-      rh.ray.tfar = d;
-    } else {
-      rh.ray.tfar = -std::numeric_limits<float>::infinity();
-    }
+    // Offset the shadow ray to avoid self intersections:
+    // const float absx = std::abs(rh.ray.org_x);
+    // const float absy = std::abs(rh.ray.org_y);
+    // const float absz = std::abs(rh.ray.org_z);
+    // const float maxc = std::max(std::max(absx, absy), absz);
+    // const float ndotd = (rh.ray.dir_x * rh.hit.Ng_x) + (rh.ray.dir_y * rh.hit.Ng_y) + ((rh.ray.dir_z * rh.hit.Ng_z));
+    // float m = (1.f + maxc) * rayEpsilon * std::copysign(1.f, ndotd);
+    // rh.ray.org_x += rh.hit.Ng_x * m;
+    // rh.ray.org_y += rh.hit.Ng_y * m;
+    // rh.ray.org_z += rh.hit.Ng_z * m;
+    // Above works on CPU/IPU but not for Embree so use a more basic offset:
+    rh.ray.org_x += rh.ray.dir_x * .005f;
+    rh.ray.org_y += rh.ray.dir_y * .005f;
+    rh.ray.org_z += rh.ray.dir_z * .005f;
   }
   embreeScene.occluded(hitStream, image.rows);
 
@@ -87,7 +87,12 @@ std::vector<embree_utils::TraceResult> renderEmbree(const SceneRef& data, embree
     auto matRgb = data.materials[data.matIDs[rh.hit.geomID]].albedo;
     auto color = matRgb * 0.05f; // ambient
     if (rh.ray.tfar != -std::numeric_limits<float>::infinity()) {
-      float norm = 1.f / std::sqrt(rh.hit.Ng_x*rh.hit.Ng_x + rh.hit.Ng_y*rh.hit.Ng_y + rh.hit.Ng_z*rh.hit.Ng_z);
+      // Not occluded:
+      float norm = 1.f / std::sqrt(
+        (rh.hit.Ng_x * rh.hit.Ng_x) +
+        (rh.hit.Ng_y * rh.hit.Ng_y) +
+        (rh.hit.Ng_z * rh.hit.Ng_z)
+      );
       auto costh =
         norm * (rh.hit.Ng_x * rh.ray.dir_x) +
         norm * (rh.hit.Ng_y * rh.ray.dir_y) +
