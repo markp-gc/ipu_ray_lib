@@ -38,7 +38,7 @@ add_library(ipu_ray_lib SHARED ${IPU_RAYLIB_SRC})
 target_include_directories(ipu_ray_lib PUBLIC ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/include/embree_utils)
 
 # Add a trace executable:
-add_executable(trace test.cpp TraceCodelets.gp)
+add_executable(trace trace.cpp TraceCodelets.gp)
 target_include_directories(trace PUBLIC ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/include/embree_utils)
 target_link_libraries(trace
   ipu_ray_lib
