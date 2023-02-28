@@ -447,6 +447,30 @@ private:
   ipu_utils::ProgramManager programs;
 };
 
+// Implementation of the abstract BuilderInterface where the
+// build and execute functions can be defined as Lambdas in
+// the class contructor.
+class LambdaBuilder : public BuilderInterface {
+
+  using BuildFn = std::function<void(poplar::Graph& graph, const poplar::Target& target,
+                                     ProgramManager& progs)>;
+  using ExecFn = std::function<void(poplar::Engine& engine, const poplar::Device& device,
+                                    const ProgramManager& progs)>;
+  BuildFn buildFn;
+  ExecFn execFn;
+
+  virtual void build(poplar::Graph& graph, const poplar::Target& target) override {
+    buildFn(graph, target, getPrograms());
+  }
+
+  virtual void execute(poplar::Engine& engine, const poplar::Device& device) override {
+    execFn(engine, device, getPrograms());
+  }
+
+public:
+  LambdaBuilder(BuildFn&& build, ExecFn&& exec) : buildFn(build), execFn(exec) {}
+};
+
 /// Utility class that can be used to wrap a poplar::Engine::ProgressFunc
 /// callback in a filter that reduces the amount of output produced.
 class CallbackFilter {

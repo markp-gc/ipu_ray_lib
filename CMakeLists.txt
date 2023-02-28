@@ -37,6 +37,9 @@ FILE(GLOB_RECURSE IPU_RAYLIB_SRC ${CMAKE_SOURCE_DIR}/src/*.cpp ${CMAKE_SOURCE_DI
 add_library(ipu_ray_lib SHARED ${IPU_RAYLIB_SRC})
 target_include_directories(ipu_ray_lib PUBLIC ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/include/embree_utils)
 
+# Poplar lib defines:
+set(POPLAR_LINK_LIBRARIES -lpoplar -lpopops -lpoputil -lpoprand -lgcl -lpvti)
+
 # Add a trace executable:
 add_executable(trace trace.cpp TraceCodelets.gp)
 target_include_directories(trace PUBLIC ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/include/embree_utils)
@@ -49,7 +52,7 @@ target_link_libraries(trace
   ${ASSIMP_LIBRARIES}
   OpenMP::OpenMP_CXX
   Eigen3::Eigen
-  -lpoplar -lpopops -lpoputil -lpoprand -lgcl -lpvti)
+  ${POPLAR_LINK_LIBRARIES})
 
 # Explicitly define the subset of the library source files needed to build IPU codelet:
 set(CODELET_SRC
@@ -72,5 +75,5 @@ add_custom_command(
 
 # Tests
 add_executable(tests ${CMAKE_SOURCE_DIR}/tests/test.cpp)
-target_link_libraries(tests ipu_ray_lib ${Boost_UNIT_TEST_FRAMEWORK_LIBRARY})
+target_link_libraries(tests ipu_ray_lib ${Boost_UNIT_TEST_FRAMEWORK_LIBRARY} ${POPLAR_LINK_LIBRARIES})
 add_test(test1 tests)

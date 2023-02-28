@@ -11,7 +11,7 @@
 #include <cstdint>
 #include <algorithm>
 
-#ifndef __IPU__
+#ifndef __POPC__
 #include <vector>
 #endif
 
@@ -23,7 +23,7 @@ struct ConstArrayRef {
   ConstArrayRef(const T* ptr, std::uint32_t numElements)
     : data(ptr), len(numElements) {}
 
-#ifndef __IPU__
+#ifndef __POPC__
   ConstArrayRef(const std::vector<T>& v)
     : data(v.data()), len(v.size()) {}
 #endif
@@ -62,7 +62,12 @@ struct ArrayRef {
   ArrayRef(T* ptr, std::uint32_t numElements)
     : data(ptr), len(numElements) {}
 
-#ifndef __IPU__
+  ArrayRef& operator = (ArrayRef& a) {
+    data = a.data;
+    len = a.len;
+  }
+
+#ifndef __POPC__
   ArrayRef(std::vector<T>& v)
     : data(v.data()), len(v.size()) {}
 #endif
