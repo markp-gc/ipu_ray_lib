@@ -2,6 +2,8 @@
 
 #include <IpuScene.hpp>
 #include <RayCallback.hpp>
+#include <serialisation/Serialiser.hpp>
+#include <serialisation/serialisation.hpp>
 
 #include <poplar/CSRFunctions.hpp>
 #include <popops/Loop.hpp>
@@ -18,6 +20,41 @@
 #include <vector>
 #include <random>
 #include <algorithm>
+
+IpuScene::IpuScene(const std::vector<Sphere>& _spheres,
+          const std::vector<Disc>& _discs,
+          SceneRef& sceneRef,
+          std::vector<embree_utils::TraceResult>& results,
+          std::size_t raysPerWorker,
+          RayCallbackFn* fn)
+  : spheres(_spheres),
+    discs(_discs),
+    data(sceneRef),
+    rayStream(results),
+    seedTensor("hw_rng_seed"),
+    loopLimit("loop_limit"),
+    samplesPerPixel("samples_per_pixel"),
+    geometryVar("geom_data"),
+    spheresVar("sphere_data"),
+    discsVar("disc_data"),
+    meshInfoVar("mesh_info"),
+    indexBufferVar("index_buffer"),
+    vertexBufferVar("vertex_buffer"),
+    normalBufferVar("normal_buffer"),
+    matIDsVar("matIDs"),
+    materialsVar("materials"),
+    bvhNodesVar("bvhNodesVar"),
+    rayFunc(fn), // If a callback is provided partial results will be streamed to the host.
+    numComputeTiles(0u), // This is set in build().
+    maxRaysPerWorker(raysPerWorker),
+    totalRayBufferSize(0u) // Needs to be set before device to host streams execute.
+{
+  // Serialise the scene description for transfer to IPU:
+  // Serialiser<16> ss(400 * 1024);
+  // ss << sceneRef.geometry;
+  // ss << sceneRef.meshInfo;
+  // ss << sceneRef.meshVerts;
+}
 
 poplar::program::Sequence IpuScene::fpSetupProg(poplar::Graph& graph) const {
   poplar::program::Sequence prog;

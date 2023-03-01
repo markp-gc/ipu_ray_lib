@@ -18,36 +18,54 @@ struct Deserialiser {
   Deserialiser(std::vector<std::uint8_t, Alloc>& v) : Deserialiser(v.data(), v.size()) {}
 #endif
 
+  // Read an object respecting the alignment that Serialiser would have
+  // applied w.r.t the base alignment:
   template <typename T>
   std::uint32_t read(T& o) {
-    constexpr auto align = alignof(T);
-    constexpr auto size = sizeof(T);
-
     // Work out if the data would have been written with padding:
     const auto offset = (uintptr_t)(ptr + BaseAlign);
-    const auto rem = offset % align;
+    const auto rem = offset % alignof(T);
     auto pad = 0u;
     if (rem) {
-      pad = align - rem;
+      pad = alignof(T) - rem;
     }
 
-    if (ptr + pad >= end) {
-#ifndef __POPC__
-      throw std::runtime_error("Deserialiser encountered end of byte stream.");
-#endif
-    }
+    ptr += pad;
+    checkForEndOfData(sizeof(T));
 
-    std::memcpy(&o, ptr + pad, sizeof(o));
-    ptr += pad + sizeof(o);
-    return pad + sizeof(o);
+    std::memcpy(&o, ptr, sizeof(T));
+    ptr += sizeof(T);
+    return pad + sizeof(T);
   };
 
+  // Read bytes directly from current point in buffer:
+  void read(std::uint8_t* dst, std::uint64_t size) {
+    checkForEndOfData(size);
+    std::memcpy(dst, ptr, size);
+    ptr += size;
+  }
+
   const std::uint8_t* getPtr() const { return ptr; }
-  void skip(std::uint32_t count) { ptr += count; }
+  void skip(std::uint64_t count) {
+    checkForEndOfData(count);
+    ptr += count;
+  }
 
 private:
   const std::uint8_t* const end;
   std::uint8_t* ptr;
+
+  void checkForEndOfData(std::uint64_t readSize) {
+    auto newPtr = ptr + readSize;
+    if (newPtr > end) {
+#ifdef __POPC__
+      assert(newPtr <= end);
+#else
+      std::cerr << "invalid ptr: " << (std::uintptr_t)newPtr << "\n";
+      throw std::runtime_error("Deserialiser encountered end of byte stream.");
+#endif
+    }
+  }
 };
 
 // For non-fundamental types look for a user defined deserialise free function:

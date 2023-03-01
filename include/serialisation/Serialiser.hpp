@@ -28,23 +28,28 @@ struct Serialiser {
     bytes.reserve(capacity);
   }
 
+  // Write an object respecting its alignment w.r.t the base alignment:
   template <typename T>
   std::uint32_t write(const T& o) {
-    constexpr auto align = alignof(T);
-    constexpr auto size = sizeof(T);
-
     // Work out if we need padding:
     const auto currentByteOffset = BaseAlign + bytes.size();
-    const auto rem = currentByteOffset % align;
+    const auto rem = currentByteOffset % alignof(T);
     auto pad = 0u;
     if (rem) {
-      pad = align - rem;
+      pad = alignof(T) - rem;
     }
 
-    bytes.resize(bytes.size() + pad + sizeof(o));
-    std::memcpy(&bytes.back() + 1 - sizeof(o), &o, sizeof(o));
-    return pad + sizeof(o);
+    bytes.resize(bytes.size() + pad + sizeof(T));
+    std::memcpy(&bytes.back() + 1 - sizeof(T), &o, sizeof(T));
+    return pad + sizeof(T);
   };
+
+  // Write bytes directly to end of buffer.
+  // Returns the destination ptr.
+  void* write(const std::uint8_t* src, std::uint64_t size) {
+    bytes.resize(bytes.size() + size);
+    return std::memcpy(&bytes.back() + 1 - size, src, size);
+  }
 
   std::vector<std::uint8_t,
               boost::alignment::aligned_allocator<std::uint8_t, BaseAlign>> bytes;

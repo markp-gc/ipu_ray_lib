@@ -182,10 +182,10 @@ public:
   Input<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(CompactBVH2Node)>> bvhNodes;
 
   // Max depth needed for the BVH traversal stack:
-  Input<std::uint32_t> samplesPerPixel;
   std::uint32_t maxLeafDepth;
   std::uint32_t maxPathLength;
   std::uint32_t rouletteStartDepth;
+  Input<std::uint32_t> samplesPerPixel;
   float imageWidth;
   float imageHeight;
   float antiAliasScale;

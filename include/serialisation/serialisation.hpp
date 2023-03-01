@@ -2,17 +2,10 @@
 
 #pragma once
 
-// Fuctions for serialising data used in tests
+// Functions for serialising commonly used types:
 
 #include <serialisation/Serialiser.hpp>
-
-template <std::uint32_t BaseAlign>
-void serialise(Serialiser<BaseAlign>& s, const TestStruct& t) {
-  s << t.x << t.y;
-  s << t.c;
-  s << t.k;
-  s << t.i << t.j;
-}
+#include <Arrays.hpp>
 
 template <std::uint32_t BaseAlign>
 void serialise(Serialiser<BaseAlign>& s, const CompactBVH2Node& n) {
@@ -26,7 +19,15 @@ template <std::uint32_t BaseAlign, typename T>
 void serialise(Serialiser<BaseAlign>& s, const std::vector<T>& arr) {
   std::uint64_t size = arr.size(); // size_t is not portable
   s << size;
-  for (const auto& v : arr) {
-    s << v;
-  }
+  s.write((const std::uint8_t*)arr.data(), size * sizeof(T));
+  // for (const auto& v : arr) {
+  //   s << v;
+  // }
+}
+
+template <std::uint32_t BaseAlign, typename T>
+void serialise(Serialiser<BaseAlign>& s, const ConstArrayRef<T>& arr) {
+  std::uint64_t size = arr.size(); // size_t is not portable
+  s << size;
+  s.write((const std::uint8_t*)arr.cbegin(), size * sizeof(T));
 }

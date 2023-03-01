@@ -2,17 +2,11 @@
 
 #pragma once
 
-// Fuctions for deserialising data used in tests
+// Functions for deserialising commonly used types:
 
-#include <CompactBVH2Node.hpp>
 #include <serialisation/Deserialiser.hpp>
-#include "TestStruct.hpp"
-
-template <std::uint32_t BaseAlign>
-void deserialise(Deserialiser<BaseAlign>& d, TestStruct& t) {
-  d >> t.x >> t.y >> t.c;
-  d >> t.k >> t.i >> t.j;
-}
+#include <CompactBVH2Node.hpp>
+#include <Arrays.hpp>
 
 template <std::uint32_t BaseAlign>
 void deserialise(Deserialiser<BaseAlign>& d, CompactBVH2Node& n) {
@@ -28,20 +22,16 @@ void deserialise(Deserialiser<BaseAlign>& d, std::vector<T>& arr) {
   std::uint64_t size;
   d >> size;
   arr.clear();
-  arr.reserve(size);
-  for (auto i = 0u; i < size; ++i) {
-    T v;
-    d >> v;
-    arr.push_back(v);
-  }
+  arr.resize(size);
+  d.read((std::uint8_t*)arr.data(), size * sizeof(T));
 }
 #endif
 
 template <typename T, std::uint32_t BaseAlign>
-ArrayRef<T> deserialiseArrayRef(Deserialiser<BaseAlign>& d) {
+ConstArrayRef<T> deserialiseArrayRef(Deserialiser<BaseAlign>& d) {
   std::uint64_t size;
   d >> size;
-  ArrayRef<T> arr((T*)d.getPtr(), size);
+  ConstArrayRef<T> arr((T*)d.getPtr(), size);
   d.skip(size * sizeof(T));
   return arr;
 }

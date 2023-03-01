@@ -9,10 +9,10 @@
 #include <assert.h>
 
 #include <serialisation/Deserialiser.hpp>
+#include <serialisation/deserialisation.hpp>
 #include <Arrays.hpp>
 
 #include "TestStruct.hpp"
-#include "deserialisation.hpp"
 
 #define CHECK_EQUAL(a,b) \
 do { \

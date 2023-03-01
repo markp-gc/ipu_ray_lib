@@ -14,12 +14,12 @@
 #include <Arrays.hpp>
 #include <serialisation/Serialiser.hpp>
 #include <serialisation/Deserialiser.hpp>
+#include <serialisation/serialisation.hpp>
+#include <serialisation/deserialisation.hpp>
 
 #include <ipu_utils.hpp>
 
 #include "TestStruct.hpp"
-#include "serialisation.hpp"
-#include "deserialisation.hpp"
 
 template <typename PODType>
 struct TestExpectedPadding {
@@ -185,6 +185,29 @@ BOOST_AUTO_TEST_CASE(SerialiseVector) {
     BOOST_CHECK_EQUAL(v[i], outRef[i]);
   }
   BOOST_CHECK_EQUAL(f, ff);
+}
+
+BOOST_AUTO_TEST_CASE(SerialiseArrayRef) {
+  std::vector<std::uint32_t> v(999);
+  std::iota(v.begin(), v.end(), 0);
+
+  // Serialise the vector via an array ref:
+  ConstArrayRef inRef(v);
+  Serialiser<16> s(1024);
+  s << inRef;
+  s << std::uint32_t(5u);
+
+  // In-place deserialisation to an array ref:
+  Deserialiser<16> d(s.bytes);
+  auto outRef = deserialiseArrayRef<decltype(v)::value_type>(d);
+  std::uint32_t uu = 0u;
+  d >> uu;
+
+  BOOST_CHECK_EQUAL(v.size(), outRef.size());
+  for (auto i = 0u; i < outRef.size(); ++i) {
+    BOOST_CHECK_EQUAL(v[i], outRef[i]);
+  }
+  BOOST_CHECK_EQUAL(uu, 5u);
 }
 
 ipu_utils::RuntimeConfig testConfig {

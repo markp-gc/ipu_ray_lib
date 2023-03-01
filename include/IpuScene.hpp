@@ -23,29 +23,7 @@ public:
            SceneRef& sceneRef,
            std::vector<embree_utils::TraceResult>& results,
            std::size_t raysPerWorker,
-           RayCallbackFn* fn = nullptr)
-    : spheres(_spheres),
-      discs(_discs),
-      data(sceneRef),
-      rayStream(results),
-      seedTensor("hw_rng_seed"),
-      loopLimit("loop_limit"),
-      samplesPerPixel("samples_per_pixel"),
-      geometryVar("geom_data"),
-      spheresVar("sphere_data"),
-      discsVar("disc_data"),
-      meshInfoVar("mesh_info"),
-      indexBufferVar("index_buffer"),
-      vertexBufferVar("vertex_buffer"),
-      normalBufferVar("normal_buffer"),
-      matIDsVar("matIDs"),
-      materialsVar("materials"),
-      bvhNodesVar("bvhNodesVar"),
-      rayFunc(fn), // If a callback is provided partial results will be streamed to the host.
-      numComputeTiles(0u), // This is set in build().
-      maxRaysPerWorker(raysPerWorker),
-      totalRayBufferSize(0u) // Needs to be set before device to host streams execute.
-  {}
+           RayCallbackFn* fn = nullptr);
 
   virtual ~IpuScene() {}
 

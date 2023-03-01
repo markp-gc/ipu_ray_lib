@@ -5,6 +5,11 @@
 #include <cstdint>
 
 #include <CompactBVH2Node.hpp>
+#include <serialisation/Deserialiser.hpp>
+
+#ifndef __POPC__
+#include <serialisation/Serialiser.hpp>
+#endif
 
 struct
 __attribute__ ((aligned (8)))
@@ -21,6 +26,22 @@ TestStruct {
     return TestStruct{1.f, 2.f, 250, 1024u, -212, +1};
   }
 };
+
+#ifndef __POPC__
+template <std::uint32_t BaseAlign>
+void serialise(Serialiser<BaseAlign>& s, const TestStruct& t) {
+  s << t.x << t.y;
+  s << t.c;
+  s << t.k;
+  s << t.i << t.j;
+}
+#endif
+
+template <std::uint32_t BaseAlign>
+void deserialise(Deserialiser<BaseAlign>& d, TestStruct& t) {
+  d >> t.x >> t.y >> t.c;
+  d >> t.k >> t.i >> t.j;
+}
 
 #define FLOAT_TEST_DATA {1.f, 2.f, 3.f, 4.f, 5.f}
 
