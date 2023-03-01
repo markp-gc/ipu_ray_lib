@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <type_traits>
+#include <typeinfo>
 
 #include <boost/align/aligned_allocator.hpp>
 #include <Eigen/Dense>
@@ -28,17 +29,22 @@ struct Serialiser {
     bytes.reserve(capacity);
   }
 
+  template <typename T>
+  std::uint64_t calculatePadding() {
+    // Work out if we need padding:
+    const auto currentByteOffset = BaseAlign + bytes.size();
+    const auto rem = currentByteOffset % alignof(T);
+    if (rem) {
+      return alignof(T) - rem;
+    }
+    return 0u;
+  }
+
   // Write an object respecting its alignment w.r.t the base alignment:
   template <typename T>
   std::uint32_t write(const T& o) {
     // Work out if we need padding:
-    const auto currentByteOffset = BaseAlign + bytes.size();
-    const auto rem = currentByteOffset % alignof(T);
-    auto pad = 0u;
-    if (rem) {
-      pad = alignof(T) - rem;
-    }
-
+    auto pad = calculatePadding<T>();
     bytes.resize(bytes.size() + pad + sizeof(T));
     std::memcpy(&bytes.back() + 1 - sizeof(T), &o, sizeof(T));
     return pad + sizeof(T);
@@ -46,9 +52,12 @@ struct Serialiser {
 
   // Write bytes directly to end of buffer.
   // Returns the destination ptr.
-  void* write(const std::uint8_t* src, std::uint64_t size) {
-    bytes.resize(bytes.size() + size);
-    return std::memcpy(&bytes.back() + 1 - size, src, size);
+  template <typename T>
+  void* write(const T* src, std::uint64_t size) {
+    const auto count = size * sizeof(T); 
+    const auto pad = calculatePadding<T>();
+    bytes.resize(bytes.size() + pad + count);
+    return std::memcpy(&bytes.back() + 1 - count, src, count);
   }
 
   std::vector<std::uint8_t,

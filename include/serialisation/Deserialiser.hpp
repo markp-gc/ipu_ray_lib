@@ -18,37 +18,51 @@ struct Deserialiser {
   Deserialiser(std::vector<std::uint8_t, Alloc>& v) : Deserialiser(v.data(), v.size()) {}
 #endif
 
+  template <typename T>
+  std::uint64_t calculatePadding() {
+    // Work out if the data would have been written with padding:
+    const auto offset = (uintptr_t)(ptr + BaseAlign);
+    const auto rem = offset % alignof(T);
+    if (rem) {
+      return alignof(T) - rem;
+    }
+    return 0u;
+  }
+
   // Read an object respecting the alignment that Serialiser would have
   // applied w.r.t the base alignment:
   template <typename T>
   std::uint32_t read(T& o) {
-    // Work out if the data would have been written with padding:
-    const auto offset = (uintptr_t)(ptr + BaseAlign);
-    const auto rem = offset % alignof(T);
-    auto pad = 0u;
-    if (rem) {
-      pad = alignof(T) - rem;
-    }
-
+    auto pad = calculatePadding<T>();
+    checkForEndOfData(pad + sizeof(T));
     ptr += pad;
-    checkForEndOfData(sizeof(T));
-
     std::memcpy(&o, ptr, sizeof(T));
     ptr += sizeof(T);
     return pad + sizeof(T);
   };
 
   // Read bytes directly from current point in buffer:
-  void read(std::uint8_t* dst, std::uint64_t size) {
-    checkForEndOfData(size);
-    std::memcpy(dst, ptr, size);
-    ptr += size;
+  template <typename T>
+  void read(T* dst, std::uint64_t size) {
+    auto bytes = size * sizeof(T);
+    const auto pad = calculatePadding<T>();
+    checkForEndOfData(pad + bytes);
+    ptr += pad;
+    std::memcpy(dst, ptr, bytes);
+    ptr += bytes;
   }
 
   const std::uint8_t* getPtr() const { return ptr; }
   void skip(std::uint64_t count) {
     checkForEndOfData(count);
     ptr += count;
+  }
+
+  template <typename T>
+  void skipPadding() {
+    const auto pad = calculatePadding<T>();
+    checkForEndOfData(pad);
+    ptr += pad;
   }
 
 private:
@@ -61,7 +75,6 @@ private:
 #ifdef __POPC__
       assert(newPtr <= end);
 #else
-      std::cerr << "invalid ptr: " << (std::uintptr_t)newPtr << "\n";
       throw std::runtime_error("Deserialiser encountered end of byte stream.");
 #endif
     }

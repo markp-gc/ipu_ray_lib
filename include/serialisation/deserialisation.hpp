@@ -23,7 +23,7 @@ void deserialise(Deserialiser<BaseAlign>& d, std::vector<T>& arr) {
   d >> size;
   arr.clear();
   arr.resize(size);
-  d.read((std::uint8_t*)arr.data(), size * sizeof(T));
+  d.read(arr.data(), size);
 }
 #endif
 
@@ -31,6 +31,7 @@ template <typename T, std::uint32_t BaseAlign>
 ConstArrayRef<T> deserialiseArrayRef(Deserialiser<BaseAlign>& d) {
   std::uint64_t size;
   d >> size;
+  d.template skipPadding<T>();
   ConstArrayRef<T> arr((T*)d.getPtr(), size);
   d.skip(size * sizeof(T));
   return arr;

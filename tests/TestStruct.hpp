@@ -27,7 +27,21 @@ TestStruct {
   }
 };
 
+struct __attribute__ ((aligned (16))) BigAlign {
+  float f;
+  bool b;
+};
+
+bool operator == (const BigAlign& a, const BigAlign& b) {
+  return a.f == b.f && a.b == b.b;
+}
+
 #ifndef __POPC__
+std::ostream& operator << (std::ostream& os, const BigAlign& a) {
+  os << a.f << ", " << a.b;
+  return os;
+}
+
 template <std::uint32_t BaseAlign>
 void serialise(Serialiser<BaseAlign>& s, const TestStruct& t) {
   s << t.x << t.y;

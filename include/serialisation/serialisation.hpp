@@ -19,15 +19,12 @@ template <std::uint32_t BaseAlign, typename T>
 void serialise(Serialiser<BaseAlign>& s, const std::vector<T>& arr) {
   std::uint64_t size = arr.size(); // size_t is not portable
   s << size;
-  s.write((const std::uint8_t*)arr.data(), size * sizeof(T));
-  // for (const auto& v : arr) {
-  //   s << v;
-  // }
+  s.write((const T*)arr.data(), size);
 }
 
 template <std::uint32_t BaseAlign, typename T>
 void serialise(Serialiser<BaseAlign>& s, const ConstArrayRef<T>& arr) {
   std::uint64_t size = arr.size(); // size_t is not portable
   s << size;
-  s.write((const std::uint8_t*)arr.cbegin(), size * sizeof(T));
+  s.write(arr.cbegin(), size);
 }

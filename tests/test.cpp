@@ -210,6 +210,32 @@ BOOST_AUTO_TEST_CASE(SerialiseArrayRef) {
   BOOST_CHECK_EQUAL(uu, 5u);
 }
 
+BOOST_AUTO_TEST_CASE(SerialiseAlignedArray) {
+  std::vector<BigAlign> v = {
+    {1.f, true},
+    {2.f, false},
+    {3.f, true}
+  };
+
+  // Serialise the vector via an array ref:
+  ConstArrayRef inRef(v);
+  Serialiser<4> s(11);
+  s << inRef;
+  s << std::uint32_t(5u);
+
+  // In-place deserialisation to an array ref:
+  Deserialiser<4> d(s.bytes);
+  auto outRef = deserialiseArrayRef<decltype(v)::value_type>(d);
+  std::uint32_t uu = 0u;
+  d >> uu;
+
+  BOOST_CHECK_EQUAL(v.size(), outRef.size());
+  for (auto i = 0u; i < outRef.size(); ++i) {
+    BOOST_CHECK_EQUAL(v[i], outRef[i]);
+  }
+  BOOST_CHECK_EQUAL(uu, 5u);
+}
+
 ipu_utils::RuntimeConfig testConfig {
   1, 1, // numIpus, numReplicas
   "ipu_test", // exeName
