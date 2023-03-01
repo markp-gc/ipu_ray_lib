@@ -121,10 +121,7 @@ BOOST_AUTO_TEST_CASE(SerialisePOD) {
 
 template <std::uint32_t BaseAlign>
 void testCompactBvhNode() {
-  CompactBVH2Node in {1.f, 2.f, std::numeric_limits<float>::infinity(),
-                      123,
-                      (half)5.f, (half)10.f, (half)20.f,
-                      13};
+  auto in = makeTestBVHNode();
   Serialiser<BaseAlign> s(0);
   s << in;
   if constexpr (BaseAlign >= 16) {
@@ -200,19 +197,23 @@ ipu_utils::RuntimeConfig testConfig {
 BOOST_AUTO_TEST_CASE(IpuDeserialise) {
   // Serialise some data:
   char start = 's';
-  std::vector<float> array = {1.f, 2.f, 3.f, 4.f, 5.f};
-  TestStruct p {1.f, 2.f, 250, 1024u, -212, +1};
+  std::vector<float> array = FLOAT_TEST_DATA;
+  auto p = TestStruct::TestData();
+  auto node = makeTestBVHNode();
   char end = 'e';
 
   Serialiser<16> s(1024);
   s << start;
   s << array;
   s << p;
+  s << node;
   s << end;
 
   // Make a Poplar program to test it:
   using namespace poplar;
   ipu_utils::StreamableTensor bytesOnIpu("bytes");
+
+  spdlog::set_level(spdlog::level::warn);
 
   auto ipuTest = ipu_utils::LambdaBuilder(
     // Build test graph:
