@@ -2,7 +2,7 @@
 
 // This file contains IPU compute codelets (kernels) for ray/path-tracing.
 
-#define DEBUG 0
+#define DEBUG 1
 #include "debug_print.hpp"
 
 #include <poplar/Vertex.hpp>
@@ -18,6 +18,9 @@
 #include <Render.hpp>
 #include <BxDF.hpp>
 #include <embree_utils/geometry.hpp>
+
+#include <serialisation/Deserialiser.hpp>
+#include <serialisation/deserialisation.hpp>
 
 #include <new>
 
@@ -49,25 +52,24 @@ inline float hw_uniform_0_1() {
 /// out of SRAM:
 class BuildDataStructures : public Vertex {
 public:
-  // Individual primitive arrays:
+  // Scene description:
   InOut<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(Sphere)>> spheres;
   InOut<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(Disc)>> discs;
-  InOut<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(MeshInfo)>> meshInfo;
-
-  // Mesh internal data arrays:
-  InOut<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(Vec3fa)>> verts;
-  InOut<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(Vec3fa)>> normals;
-  InOut<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(Triangle)>> tris;
   InOut<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(CompiledTriangleMesh)>> meshes;
+  Input<Vector<unsigned char, poplar::VectorLayout::SPAN, 16>> serialisedScene;
 
   bool compute() {
+    // De-serialise:
+    Deserialiser<16> d(&serialisedScene[0], serialisedScene.size());
+    auto wrappedGeometry = deserialiseArrayRef<GeomRef>(d);
+    auto wrappedMeshInfo = deserialiseArrayRef<MeshInfo>(d);
+    auto wrappedTris = deserialiseArrayRef<Triangle>(d);
+    auto wrappedVerts = deserialiseArrayRef<Vec3fa>(d);
+    auto wrappedNormals = deserialiseArrayRef<Vec3fa>(d);
+
     // For each primitive copy its position to a tensor:
     auto wrappedSpheres = ConstArrayRef<Sphere>::reinterpret(&spheres[0], spheres.size());
     auto wrappedDiscs = ConstArrayRef<Disc>::reinterpret(&discs[0], discs.size());
-    auto wrappedMeshInfo = ConstArrayRef<MeshInfo>::reinterpret(&meshInfo[0], meshInfo.size());
-    auto wrappedVerts = ConstArrayRef<Vec3fa>::reinterpret(&verts[0], verts.size());
-    auto wrappedNormals = ConstArrayRef<Vec3fa>::reinterpret(&normals[0], normals.size());
-    auto wrappedTris = ConstArrayRef<Triangle>::reinterpret(&tris[0], tris.size());
 
     // Need to re-new everything i.e. reconstruct in place using placement-new!
     // Any struct with pointers (e.g. vtable) will not be compatible between IPU and host.
@@ -86,7 +88,7 @@ public:
     for (const auto& info : wrappedMeshInfo) {
       auto firstNormalIndex = 0u;
       auto numNormals = 0u;
-      if (normals.size()) {
+      if (wrappedNormals.size()) {
         // If scene has normals assume every mesh has normals:
         firstNormalIndex = info.firstVertex;
         numNormals = info.numVertices;
@@ -168,18 +170,8 @@ public:
   Input<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(Disc)>> discs;
   Input<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(CompiledTriangleMesh)>> meshes;
 
-  // Index and vertex buffers:
-  // NOTE: Even though these aren't referenced in the codelet they need to be connected
-  // and kept live because the mesh holds pointers to their connected tensors.
-  Input<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(Triangle)>> tris;
-  Input<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(Vec3fa)>> verts;
-  Input<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(Vec3fa)>> normals;
-
   // Scene description and BVH:
-  Input<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(GeomRef)>> geometry;
-  Input<Vector<unsigned int, poplar::VectorLayout::SPAN>> matIDs;
-  Input<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(Material)>> materials;
-  Input<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(CompactBVH2Node)>> bvhNodes;
+  Input<Vector<unsigned char, poplar::VectorLayout::SPAN, 16>> serialisedScene;
 
   // Max depth needed for the BVH traversal stack:
   std::uint32_t maxLeafDepth;
@@ -199,11 +191,18 @@ public:
     auto wrappedSpheres = ConstArrayRef<Sphere>::reinterpret(&spheres[0], spheres.size());
     auto wrappedMeshes = ConstArrayRef<CompiledTriangleMesh>::reinterpret(&meshes[0], meshes.size());
     auto wrappedDiscs = ConstArrayRef<Disc>::reinterpret(&discs[0], discs.size());
-    auto wrappedGeometry = ConstArrayRef<GeomRef>::reinterpret(&geometry[0], geometry.size());
-    auto wrappedBvhNodes = ConstArrayRef<CompactBVH2Node>::reinterpret(&bvhNodes[0], bvhNodes.size());
+
+    Deserialiser<16> d(&serialisedScene[0], serialisedScene.size());
+    auto wrappedGeometry = deserialiseArrayRef<GeomRef>(d);
+    auto wrappedMeshInfo = deserialiseArrayRef<MeshInfo>(d);
+    auto wrappedTris = deserialiseArrayRef<Triangle>(d);
+    auto wrappedVerts = deserialiseArrayRef<Vec3fa>(d);
+    auto wrappedNormals = deserialiseArrayRef<Vec3fa>(d);
+    auto wrappedMatIDs = deserialiseArrayRef<std::uint32_t>(d);
+    auto wrappedMaterials = deserialiseArrayRef<Material>(d);
+    auto wrappedBvhNodes = deserialiseArrayRef<CompactBVH2Node>(d);
+
     auto wrappedRays = ArrayRef<embree_utils::TraceResult>::reinterpret(&rays[0], rays.size());
-    auto wrappedMaterials = ConstArrayRef<Material>::reinterpret(&materials[0], materials.size());
-    auto wrappedMatIDs = ConstArrayRef<unsigned int>::reinterpret(&matIDs[0], matIDs.size());
 
     // Construct a BVH from all the wrapped arrays:
     CompactBvh bvh(wrappedBvhNodes, maxLeafDepth);

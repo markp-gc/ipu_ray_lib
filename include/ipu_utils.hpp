@@ -372,13 +372,13 @@ struct StreamableTensor {
     e.connectStream(getReadHandle(), data);
   }
 
-  template <class T>
-  void connectWriteStream(poplar::Engine& e, std::vector<T>& v) const {
+  template <class T, class Alloc>
+  void connectWriteStream(poplar::Engine& e, std::vector<T, Alloc>& v) const {
     connectStream(e, getWriteHandle(), v);
   }
 
-  template <class T>
-  void connectReadStream(poplar::Engine& e, std::vector<T>& v) const {
+  template <class T, class Alloc>
+  void connectReadStream(poplar::Engine& e, std::vector<T, Alloc>& v) const {
     connectStream(e, getReadHandle(), v);
   }
 

@@ -8,6 +8,7 @@
 #include "ipu_utils.hpp"
 #include "Scene.hpp"
 #include "Primitives.hpp"
+#include <serialisation/Serialiser.hpp>
 
 #include <functional>
 
@@ -38,6 +39,7 @@ public:
   RayCallbackFn* getRayCallback() { return rayFunc; }
 
 private:
+  Serialiser<16> serialiser;
   const std::vector<Sphere>& spheres;
   const std::vector<Disc>& discs;
   SceneRef data;
@@ -49,18 +51,11 @@ private:
   ipu_utils::StreamableTensor samplesPerPixel;
 
   // Variables to hold the primitive data:
-  ipu_utils::StreamableTensor geometryVar;
   ipu_utils::StreamableTensor spheresVar;
   ipu_utils::StreamableTensor discsVar;
-  ipu_utils::StreamableTensor meshInfoVar;
-  ipu_utils::StreamableTensor indexBufferVar;
-  ipu_utils::StreamableTensor vertexBufferVar;
-  ipu_utils::StreamableTensor normalBufferVar;
 
-  // SceneRef data:
-  ipu_utils::StreamableTensor matIDsVar;
-  ipu_utils::StreamableTensor materialsVar;
-  ipu_utils::StreamableTensor bvhNodesVar;
+  // SceneRef data in serialised form:
+  ipu_utils::StreamableTensor serialScene;
 
   poplar::RemoteBuffer rayBuffer;
 

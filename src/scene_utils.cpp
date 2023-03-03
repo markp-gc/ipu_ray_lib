@@ -494,7 +494,6 @@ SceneDescription makeCornellBoxScene(std::string& meshFile, bool boxOnly) {
     s.z -= cameraPosition.z;
     s.x = -s.x;
     s.z = -s.z;
-    ipu_utils::logger()->info("SPHERE: {} {} {}, {}", s.x, s.y, s.z, s.radius);
   }
 
   for (auto& d : scene.discs) {

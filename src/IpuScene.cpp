@@ -2,7 +2,6 @@
 
 #include <IpuScene.hpp>
 #include <RayCallback.hpp>
-#include <serialisation/Serialiser.hpp>
 #include <serialisation/serialisation.hpp>
 
 #include <poplar/CSRFunctions.hpp>
@@ -27,33 +26,34 @@ IpuScene::IpuScene(const std::vector<Sphere>& _spheres,
           std::vector<embree_utils::TraceResult>& results,
           std::size_t raysPerWorker,
           RayCallbackFn* fn)
-  : spheres(_spheres),
+  :
+    serialiser(600 * 1024),
+    spheres(_spheres),
     discs(_discs),
     data(sceneRef),
     rayStream(results),
     seedTensor("hw_rng_seed"),
     loopLimit("loop_limit"),
     samplesPerPixel("samples_per_pixel"),
-    geometryVar("geom_data"),
     spheresVar("sphere_data"),
     discsVar("disc_data"),
-    meshInfoVar("mesh_info"),
-    indexBufferVar("index_buffer"),
-    vertexBufferVar("vertex_buffer"),
-    normalBufferVar("normal_buffer"),
-    matIDsVar("matIDs"),
-    materialsVar("materials"),
-    bvhNodesVar("bvhNodesVar"),
+    serialScene("serialScene"),
     rayFunc(fn), // If a callback is provided partial results will be streamed to the host.
     numComputeTiles(0u), // This is set in build().
     maxRaysPerWorker(raysPerWorker),
     totalRayBufferSize(0u) // Needs to be set before device to host streams execute.
 {
   // Serialise the scene description for transfer to IPU:
-  // Serialiser<16> ss(400 * 1024);
-  // ss << sceneRef.geometry;
-  // ss << sceneRef.meshInfo;
-  // ss << sceneRef.meshVerts;
+  serialiser << sceneRef.geometry;
+  serialiser << sceneRef.meshInfo;
+  serialiser << sceneRef.meshTris;
+  serialiser << sceneRef.meshVerts;
+  serialiser << sceneRef.meshNormals;
+  serialiser << sceneRef.matIDs;
+  serialiser << sceneRef.materials;
+  serialiser << sceneRef.bvhNodes;
+  serialiser << sceneRef.maxLeafDepth;
+  ipu_utils::logger()->info("Serialised scene size: {} KiB", serialiser.bytes.size() / 1024.f);
 }
 
 poplar::program::Sequence IpuScene::fpSetupProg(poplar::Graph& graph) const {
@@ -172,23 +172,12 @@ void IpuScene::createComputeVars(poplar::Graph& ioGraph,
                                  std::size_t numComputeTiles,
                                  std::size_t perTileRayBufferSize) {
   // Add a variable to hold each primitive type:
-  geometryVar.buildTensor(ioGraph, poplar::UNSIGNED_CHAR, {data.geometry.size() * sizeof(GeomRef)}),
   spheresVar.buildTensor(ioGraph, poplar::UNSIGNED_CHAR, {spheres.size() * sizeof(Sphere)});
   discsVar.buildTensor(ioGraph, poplar::UNSIGNED_CHAR, {discs.size() * sizeof(Disc)});
-  meshInfoVar.buildTensor(ioGraph, poplar::UNSIGNED_CHAR, {data.meshInfo.size() * sizeof(MeshInfo)});
 
-  // How to do this cleanly: if we had more than one mesh we need these vars for every single mesh.
-  // Should there be one vert array shared between meshes? We also might want to load a scene with
-  // different number of triangles into same graph program? Do we need a mesh manager object that should
-  // be serialised to IPU?
-  indexBufferVar.buildTensor(ioGraph, poplar::UNSIGNED_CHAR, {data.meshTris.size() * sizeof(Triangle)});
-  vertexBufferVar.buildTensor(ioGraph, poplar::UNSIGNED_CHAR, {data.meshVerts.size() * sizeof(embree_utils::Vec3fa)});
-  normalBufferVar.buildTensor(ioGraph, poplar::UNSIGNED_CHAR, {data.meshNormals.size() * sizeof(embree_utils::Vec3fa)});
+  // All scene data is serialised into a single byte stream:
+  serialScene.buildTensor(ioGraph, poplar::UNSIGNED_CHAR, {serialiser.bytes.size()});
 
-  // Scene ref streamable data:
-  matIDsVar.buildTensor(ioGraph, poplar::UNSIGNED_INT, {data.matIDs.size()});
-  materialsVar.buildTensor(ioGraph, poplar::UNSIGNED_CHAR, {data.materials.size() * sizeof(Material)});
-  bvhNodesVar.buildTensor(ioGraph, poplar::UNSIGNED_CHAR, {data.bvhNodes.size() * sizeof(CompactBVH2Node)});
   samplesPerPixel.buildTensor(ioGraph, poplar::UNSIGNED_INT, {1u});
 
   ipu_utils::logger()->debug("Geometry info: {} bytes per tile", data.geometry.size() * sizeof(GeomRef));
@@ -206,19 +195,12 @@ void IpuScene::createComputeVars(poplar::Graph& ioGraph,
   // contain the BVH chunk the rays are traversing next). For now having the separate tensors
   // makes debugging a bit easier as we can see the individual tensors in the profiler.
   ioSceneVars = {
-    {"geometry", geometryVar.get()},
     {"spheres", spheresVar.get()},
     {"discs", discsVar.get()},
-    {"meshInfo", meshInfoVar.get()},
-    {"verts", vertexBufferVar.get()},
-    {"normals", normalBufferVar.get()},
-    {"tris", indexBufferVar.get()},
-    {"matIDs", matIDsVar.get()},
-    {"materials", materialsVar.get()},
-    {"bvhNodes", bvhNodesVar.get()},
     {"meshes", computeGraph.addVariable(poplar::UNSIGNED_CHAR,
                                         {data.meshInfo.size() * sizeof(CompiledTriangleMesh)},
                                         "tri_meshes")},
+    {"serialisedScene", serialScene.get()},
     {"samplesPerPixel", samplesPerPixel.get()}
   };
 
@@ -327,11 +309,10 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
     computeGraph.setTileMapping(initBuildVertex, t);
     computeGraph.connect(initBuildVertex["spheres"], broadcastSceneVars["spheres"][t]);
     computeGraph.connect(initBuildVertex["discs"], broadcastSceneVars["discs"][t]);
-    computeGraph.connect(initBuildVertex["meshInfo"], broadcastSceneVars["meshInfo"][t]);
-    computeGraph.connect(initBuildVertex["tris"], broadcastSceneVars["tris"][t]);
-    computeGraph.connect(initBuildVertex["verts"], broadcastSceneVars["verts"][t]);
-    computeGraph.connect(initBuildVertex["normals"], broadcastSceneVars["normals"][t]);
     computeGraph.connect(initBuildVertex["meshes"], broadcastSceneVars["meshes"][t]);
+
+    // Scene buffer:
+    computeGraph.connect(initBuildVertex["serialisedScene"], broadcastSceneVars["serialisedScene"][t]);
 
     // Ray tracing:
     // Choose between two ray trace modes at compile time.
@@ -360,13 +341,7 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
     computeGraph.connect(rayTraceVertex["spheres"], broadcastSceneVars["spheres"][t]);
     computeGraph.connect(rayTraceVertex["discs"], broadcastSceneVars["discs"][t]);
     computeGraph.connect(rayTraceVertex["meshes"], broadcastSceneVars["meshes"][t]);
-    computeGraph.connect(rayTraceVertex["tris"], broadcastSceneVars["tris"][t]);
-    computeGraph.connect(rayTraceVertex["verts"], broadcastSceneVars["verts"][t]);
-    computeGraph.connect(rayTraceVertex["normals"], broadcastSceneVars["normals"][t]);
-    computeGraph.connect(rayTraceVertex["geometry"], broadcastSceneVars["geometry"][t]);
-    computeGraph.connect(rayTraceVertex["matIDs"], broadcastSceneVars["matIDs"][t]);
-    computeGraph.connect(rayTraceVertex["materials"], broadcastSceneVars["materials"][t]);
-    computeGraph.connect(rayTraceVertex["bvhNodes"], broadcastSceneVars["bvhNodes"][t]);
+    computeGraph.connect(rayTraceVertex["serialisedScene"], broadcastSceneVars["serialisedScene"][t]);
     computeGraph.setInitialValue(rayTraceVertex["maxLeafDepth"], data.maxLeafDepth);
 
     // Set tile mappings:
@@ -402,15 +377,8 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
   poplar::program::Sequence init = {
     fpSetupProg(computeGraph),
     spheresVar.buildWrite(computeGraph, optimiseMemUse),
-    geometryVar.buildWrite(computeGraph, optimiseMemUse),
     discsVar.buildWrite(computeGraph, optimiseMemUse),
-    meshInfoVar.buildWrite(computeGraph, optimiseMemUse),
-    vertexBufferVar.buildWrite(computeGraph, optimiseMemUse),
-    normalBufferVar.buildWrite(computeGraph, optimiseMemUse),
-    indexBufferVar.buildWrite(computeGraph, optimiseMemUse),
-    matIDsVar.buildWrite(computeGraph, optimiseMemUse),
-    materialsVar.buildWrite(computeGraph, optimiseMemUse),
-    bvhNodesVar.buildWrite(computeGraph, optimiseMemUse),
+    serialScene.buildWrite(ioGraph, optimiseMemUse),
     samplesPerPixel.buildWrite(computeGraph, optimiseMemUse),
     broadcastSceneData
   };
@@ -520,22 +488,11 @@ void IpuScene::execute(poplar::Engine& engine, const poplar::Device& device) {
   }
   seedTensor.connectWriteStream(engine, seedValues);
 
-  geometryVar.connectWriteStream(engine, (void*)data.geometry.cbegin());
+  // Note: these copy host pointers into the on device data! We will
+  // overwrite by rebuilding the object before using it in the codelet:
   spheresVar.connectWriteStream(engine, (void*)spheres.data());
   discsVar.connectWriteStream(engine, (void*)discs.data());
-
-  // Note: this copies host pointers into the on device data! We will overwrite
-  // by rebuilding the object before using it in the codelet:
-  meshInfoVar.connectWriteStream(engine, (void*)data.meshInfo.cbegin());
-  // This is the data that the above object needs to point to:
-  indexBufferVar.connectWriteStream(engine, (void*)data.meshTris.cbegin());
-  vertexBufferVar.connectWriteStream(engine, (void*)data.meshVerts.cbegin());
-  normalBufferVar.connectWriteStream(engine, (void*)data.meshNormals.cbegin());
-
-  // Streams for SceneRef data:
-  matIDsVar.connectWriteStream(engine, (void*)data.matIDs.cbegin());
-  materialsVar.connectWriteStream(engine, (void*)data.materials.cbegin());
-  bvhNodesVar.connectWriteStream(engine, (void*)data.bvhNodes.cbegin());
+  serialScene.connectWriteStream(engine, (void*)serialiser.bytes.data());
 
   // Connect callbacks:
   for (auto i = 0u; i < numReplicas; ++i) {

@@ -5,13 +5,18 @@
 #include <cstdint>
 #include <type_traits>
 
+#ifdef __POPC__
+#include <print.h>
+#include <assert.h>
+#endif
+
 // Class for de-serialising POD data and structures encoded
 // by the serialiser (see Serialiser.hpp).
 template <std::uint32_t BaseAlign = 16>
 struct Deserialiser {
   constexpr std::uint32_t baseAlignment() const { return BaseAlign; }
 
-  Deserialiser(std::uint8_t* bytes, std::size_t size) : end(bytes + size), ptr(bytes) {}
+  Deserialiser(const std::uint8_t* bytes, std::size_t size) : end(bytes + size), ptr(bytes) {}
 
 #ifndef __POPC__
   template <typename Alloc>
@@ -67,7 +72,7 @@ struct Deserialiser {
 
 private:
   const std::uint8_t* const end;
-  std::uint8_t* ptr;
+  const std::uint8_t* ptr;
 
   void checkForEndOfData(std::uint64_t readSize) {
     auto newPtr = ptr + readSize;
