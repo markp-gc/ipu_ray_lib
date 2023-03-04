@@ -2,7 +2,7 @@
 
 // This file contains IPU compute codelets (kernels) for ray/path-tracing.
 
-#define DEBUG 1
+#define DEBUG 0
 #include "debug_print.hpp"
 
 #include <poplar/Vertex.hpp>
@@ -173,7 +173,7 @@ public:
   // Scene description and BVH:
   Input<Vector<unsigned char, poplar::VectorLayout::SPAN, 16>> serialisedScene;
 
-  // Max depth needed for the BVH traversal stack:
+  // Other parameters:
   std::uint32_t maxPathLength;
   std::uint32_t rouletteStartDepth;
   Input<std::uint32_t> samplesPerPixel;
@@ -191,6 +191,7 @@ public:
     auto wrappedMeshes = ConstArrayRef<CompiledTriangleMesh>::reinterpret(&meshes[0], meshes.size());
     auto wrappedDiscs = ConstArrayRef<Disc>::reinterpret(&discs[0], discs.size());
 
+    // Unpack the scene data:
     Deserialiser<16> d(&serialisedScene[0], serialisedScene.size());
     auto wrappedGeometry = deserialiseArrayRef<GeomRef>(d);
     auto wrappedMeshInfo = deserialiseArrayRef<MeshInfo>(d);
@@ -297,21 +298,10 @@ public:
   Input<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(Disc)>> discs;
   Input<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(CompiledTriangleMesh)>> meshes;
 
-  // Index and vertex buffers:
-  // NOTE: Even though these aren't referenced in the codelet they need to be connected
-  // and kept live because the mesh holds pointers to their connected tensors.
-  Input<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(Triangle)>> tris;
-  Input<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(Vec3fa)>> verts;
-  Input<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(Vec3fa)>> normals;
-
   // Scene description and BVH:
-  Input<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(GeomRef)>> geometry;
-  Input<Vector<unsigned int, poplar::VectorLayout::SPAN>> matIDs;
-  Input<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(Material*)>> materials;
-  Input<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(CompactBVH2Node)>> bvhNodes;
+  Input<Vector<unsigned char, poplar::VectorLayout::SPAN, 16>> serialisedScene;
 
-  // Max depth needed for the BVH traversal stack:
-  std::uint32_t maxLeafDepth;
+  // Other scene parameters:
   float ambientLightFactor;
   Input<Vector<float>> lightPos;
 
@@ -323,24 +313,34 @@ public:
     auto wrappedSpheres = ConstArrayRef<Sphere>::reinterpret(&spheres[0], spheres.size());
     auto wrappedMeshes = ConstArrayRef<CompiledTriangleMesh>::reinterpret(&meshes[0], meshes.size());
     auto wrappedDiscs = ConstArrayRef<Disc>::reinterpret(&discs[0], discs.size());
-    auto wrappedGeometry = ConstArrayRef<GeomRef>::reinterpret(&geometry[0], geometry.size());
-    auto wrappedBvhNodes = ConstArrayRef<CompactBVH2Node>::reinterpret(&bvhNodes[0], bvhNodes.size());
-    auto wrappedRays = ArrayRef<embree_utils::TraceResult>::reinterpret(&rays[0], rays.size());
-    auto wrappedMaterials = ConstArrayRef<Material>::reinterpret(&materials[0], materials.size());
-    auto wrappedMatIDs = ConstArrayRef<unsigned int>::reinterpret(&matIDs[0], matIDs.size());
 
-    // Construct a BVH from all the wrapped arrays:
-    CompactBvh bvh(wrappedBvhNodes, maxLeafDepth);
+    // Unpack the scene data:
+    Deserialiser<16> d(&serialisedScene[0], serialisedScene.size());
+    auto wrappedGeometry = deserialiseArrayRef<GeomRef>(d);
+    auto wrappedMeshInfo = deserialiseArrayRef<MeshInfo>(d);
+    auto wrappedTris = deserialiseArrayRef<Triangle>(d);
+    auto wrappedVerts = deserialiseArrayRef<Vec3fa>(d);
+    auto wrappedNormals = deserialiseArrayRef<Vec3fa>(d);
+    auto wrappedMatIDs = deserialiseArrayRef<std::uint32_t>(d);
+    auto wrappedMaterials = deserialiseArrayRef<Material>(d);
+    auto wrappedBvhNodes = deserialiseArrayRef<CompactBVH2Node>(d);
+    std::uint32_t maxLeafDepth;
+    d >> maxLeafDepth;
+
+    auto wrappedRays = ArrayRef<embree_utils::TraceResult>::reinterpret(&rays[0], rays.size());
 
     auto primLookup = [&](std::uint16_t geomID, std::uint32_t primID) {
       const auto& geom = wrappedGeometry[geomID];
       return getPrimitive(geom, wrappedSpheres, wrappedMeshes, wrappedDiscs);
     };
 
+    // Construct a BVH from all the wrapped arrays:
+    CompactBvh bvh(wrappedBvhNodes, maxLeafDepth);
+
     Vec3fa lp(lightPos[0], lightPos[1], lightPos[2]);
 
-    // There is no need for ray gen in this vertex since we are tracibg rays
-    // that were generated on the host.
+    // Note: there is no need for ray gen in this vertex since we are tracing
+    // rays that were initialised on the host.
 
     // Intersect all rays against the BVH. Each worker starts processing offset by their worker IDs.
     // The external Poplar graph construction code ensures the number of rays to process on each
