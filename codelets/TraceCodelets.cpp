@@ -71,9 +71,9 @@ public:
     auto wrappedSpheres = ConstArrayRef<Sphere>::reinterpret(&spheres[0], spheres.size());
     auto wrappedDiscs = ConstArrayRef<Disc>::reinterpret(&discs[0], discs.size());
 
-    // Need to re-new everything i.e. reconstruct in place using placement-new!
-    // Any struct with pointers (e.g. vtable) will not be compatible between IPU and host.
-    // Hopefully one day codelets like this can be auto-generated.
+    // Need to re-new anything that inherits from Primitive i.e. reconstruct in place
+    // using placement-new! Any struct with pointers (e.g. vtable) will not be
+    // compatible between IPU and host.
     //
     // There are some assumptions that make this work:
     // 1. Host pointers are larger than IPU pointers so everything has been over allocated.
@@ -174,7 +174,6 @@ public:
   Input<Vector<unsigned char, poplar::VectorLayout::SPAN, 16>> serialisedScene;
 
   // Max depth needed for the BVH traversal stack:
-  std::uint32_t maxLeafDepth;
   std::uint32_t maxPathLength;
   std::uint32_t rouletteStartDepth;
   Input<std::uint32_t> samplesPerPixel;
@@ -201,6 +200,8 @@ public:
     auto wrappedMatIDs = deserialiseArrayRef<std::uint32_t>(d);
     auto wrappedMaterials = deserialiseArrayRef<Material>(d);
     auto wrappedBvhNodes = deserialiseArrayRef<CompactBVH2Node>(d);
+    std::uint32_t maxLeafDepth;
+    d >> maxLeafDepth;
 
     auto wrappedRays = ArrayRef<embree_utils::TraceResult>::reinterpret(&rays[0], rays.size());
 

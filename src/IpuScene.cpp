@@ -210,10 +210,15 @@ void IpuScene::createComputeVars(poplar::Graph& ioGraph,
   // var to its own tile (this won't scale):
   auto tile = 0u;
   for (auto& p : ioSceneVars) {
-    ioGraph.setTileMapping(p.second, tile);
-    tile += 1;
-    tile = tile % ioGraph.getTarget().getNumTiles();
+    if (p.first != "serialisedScene") {
+      ioGraph.setTileMapping(p.second, tile);
+      tile += 1;
+      tile = tile % ioGraph.getTarget().getNumTiles();
+    }
   }
+
+  // Scene bytes stream needs to be split across tiles in large chunks:
+  poputil::mapTensorLinearlyWithOffset(ioGraph, ioSceneVars["serialisedScene"], 128, 16, tile);
 
   // These tensors hold the scene data after it has been broadcast to every tile in the compute graph:
   for (const auto& p : ioSceneVars) {
@@ -342,7 +347,6 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
     computeGraph.connect(rayTraceVertex["discs"], broadcastSceneVars["discs"][t]);
     computeGraph.connect(rayTraceVertex["meshes"], broadcastSceneVars["meshes"][t]);
     computeGraph.connect(rayTraceVertex["serialisedScene"], broadcastSceneVars["serialisedScene"][t]);
-    computeGraph.setInitialValue(rayTraceVertex["maxLeafDepth"], data.maxLeafDepth);
 
     // Set tile mappings:
     for (auto& p : broadcastSceneVars) {
@@ -386,6 +390,7 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
   // Add program to set HW RNG seed to the init sequence:
   seedTensor.buildTensor(computeGraph, poplar::UNSIGNED_INT, {2});
   computeGraph.setTileMapping(seedTensor, 0);
+
   // Do not broadcast the seed to all replicas: need a different seed per replica:
   init.add(seedTensor.buildWrite(computeGraph, optimiseMemUse, false));
   poprand::setSeed(computeGraph, seedTensor, 1u, init, "set_seed");
