@@ -188,12 +188,9 @@ void IpuScene::createComputeVars(poplar::Graph& ioGraph,
   ipu_utils::logger()->debug("Normal buffer: {} bytes per tile", data.meshNormals.size() * sizeof(embree_utils::Vec3fa));
 
   // The scene data vars get uploaded once by the host and then broadcast to every
-  // tile so we store them in a separate map.
-  // TODO: this should be one monolithic data structure encoded in a single byte tensor.
-  // (This will allow us to naturally extend the renderer to allow chunks of BVH and associated
-  // data to be loaded piece by piece and for rays to be sorted and sent to tiles that already
-  // contain the BVH chunk the rays are traversing next). For now having the separate tensors
-  // makes debugging a bit easier as we can see the individual tensors in the profiler.
+  // tile so we store them in a separate map to keep track of that more easily.
+  // TODO: spheres and disc primitives should be stored in the serialised scene's
+  // monolithic byte array.
   ioSceneVars = {
     {"spheres", spheresVar.get()},
     {"discs", discsVar.get()},
@@ -204,21 +201,15 @@ void IpuScene::createComputeVars(poplar::Graph& ioGraph,
     {"samplesPerPixel", samplesPerPixel.get()}
   };
 
-  // Mapping the scene data linearly across I/O tiles
-  // is counter productive because it results in excessive
-  // exchange messages on the compute tiles so we map each
-  // var to its own tile (this won't scale):
+  // Map the receive buffers for scene data linearly across the IO tiles. We must
+  // specify large minimum chunk and grain sizes otherwise exchange code on the
+  // compute tiles becomes prohibitively large:
   auto tile = 0u;
   for (auto& p : ioSceneVars) {
-    if (p.first != "serialisedScene") {
-      ioGraph.setTileMapping(p.second, tile);
-      tile += 1;
-      tile = tile % ioGraph.getTarget().getNumTiles();
-    }
+    poputil::mapTensorLinearlyWithOffset(ioGraph, p.second, 128, 16, tile);
+    tile += 1;
+    tile = tile % ioGraph.getTarget().getNumTiles();
   }
-
-  // Scene bytes stream needs to be split across tiles in large chunks:
-  poputil::mapTensorLinearlyWithOffset(ioGraph, ioSceneVars["serialisedScene"], 128, 16, tile);
 
   // These tensors hold the scene data after it has been broadcast to every tile in the compute graph:
   for (const auto& p : ioSceneVars) {
