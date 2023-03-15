@@ -22,7 +22,7 @@ void transform(HostTriangleMesh& mesh,
   }
 
   mesh.updateBoundingBox();
-  ipu_utils::logger()->debug("New bounding box for mesh: {} {} {} -> {} {} {}",
+  ipu_utils::logger()->trace("New bounding box for mesh: {} {} {} -> {} {} {}",
     mesh.getBoundingBox().min.x, mesh.getBoundingBox().min.y, mesh.getBoundingBox().min.z,
     mesh.getBoundingBox().max.x, mesh.getBoundingBox().max.y, mesh.getBoundingBox().max.z);
 }
@@ -96,7 +96,7 @@ void getMeshes(const aiScene* aiFile, std::vector<HostTriangleMesh>& meshes, std
       hostMesh.getBoundingBox().max.x, hostMesh.getBoundingBox().max.y, hostMesh.getBoundingBox().max.z);
   }
 
-  ipu_utils::logger()->info("Loaded {} faces.", faceCount);
+  ipu_utils::logger()->debug("Loaded {} faces.", faceCount);
 }
 
 void importMesh(std::string& filename, std::vector<HostTriangleMesh>& meshes) {

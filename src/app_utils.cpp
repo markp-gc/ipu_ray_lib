@@ -349,7 +349,7 @@ std::pair<SceneData, embree_utils::EmbreeScene> buildSceneData(const SceneDescri
   auto bvhEndTime = std::chrono::steady_clock::now();
   auto bvhSecs = std::chrono::duration<double>(bvhEndTime - bvhStartTime).count();
 
-  ipu_utils::logger()->info("Compact BVH build time: {} seconds", bvhSecs);
+  ipu_utils::logger()->debug("Compact BVH build time: {} seconds", bvhSecs);
   ipu_utils::logger()->debug("Max leaf depth in BVH: {}", data.bvhMaxDepth);
 
   return {data, embreeScene};

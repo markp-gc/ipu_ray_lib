@@ -413,16 +413,16 @@ int main(int argc, char** argv) {
   }
 
   // Log size info for various types, useful during memory optimisation:
-  ipu_utils::logger()->debug("HitRecord size: {}", sizeof(embree_utils::HitRecord));
-  ipu_utils::logger()->debug("HitRecord align: {}", alignof(embree_utils::HitRecord));
-  ipu_utils::logger()->debug("TraceResult size: {}", sizeof(embree_utils::TraceResult));
-  ipu_utils::logger()->debug("TraceResult align: {}", alignof(embree_utils::TraceResult));
-  ipu_utils::logger()->debug("CompactBVH2Node size: {}", sizeof(CompactBVH2Node));
-  ipu_utils::logger()->debug("CompactBVH2Node align: {}", alignof(CompactBVH2Node));
-  ipu_utils::logger()->debug("Ray size: {}", sizeof(embree_utils::Ray));
-  ipu_utils::logger()->debug("Ray align: {}", alignof(embree_utils::Ray));
-  ipu_utils::logger()->debug("RayShearParams size: {}", sizeof(RayShearParams));
-  ipu_utils::logger()->debug("RayShearParams align: {}", alignof(RayShearParams));
+  ipu_utils::logger()->trace("HitRecord size: {}", sizeof(embree_utils::HitRecord));
+  ipu_utils::logger()->trace("HitRecord align: {}", alignof(embree_utils::HitRecord));
+  ipu_utils::logger()->trace("TraceResult size: {}", sizeof(embree_utils::TraceResult));
+  ipu_utils::logger()->trace("TraceResult align: {}", alignof(embree_utils::TraceResult));
+  ipu_utils::logger()->trace("CompactBVH2Node size: {}", sizeof(CompactBVH2Node));
+  ipu_utils::logger()->trace("CompactBVH2Node align: {}", alignof(CompactBVH2Node));
+  ipu_utils::logger()->trace("Ray size: {}", sizeof(embree_utils::Ray));
+  ipu_utils::logger()->trace("Ray align: {}", alignof(embree_utils::Ray));
+  ipu_utils::logger()->trace("RayShearParams size: {}", sizeof(RayShearParams));
+  ipu_utils::logger()->trace("RayShearParams align: {}", alignof(RayShearParams));
 
   // ===== Scene setup: ======
 

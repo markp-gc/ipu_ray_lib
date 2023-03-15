@@ -53,7 +53,15 @@ IpuScene::IpuScene(const std::vector<Sphere>& _spheres,
   serialiser << sceneRef.materials;
   serialiser << sceneRef.bvhNodes;
   serialiser << sceneRef.maxLeafDepth;
-  ipu_utils::logger()->info("Serialised scene size: {} KiB", serialiser.bytes.size() / 1024.f);
+  ipu_utils::logger()->debug("Serialised scene size: {} KiB", serialiser.bytes.size() / 1024.f);
+
+  // Log individual component sizes at trace level:
+  ipu_utils::logger()->trace("Geometry info: {} bytes per tile", data.geometry.size() * sizeof(GeomRef));
+  ipu_utils::logger()->trace("Mesh info: {} bytes per tile", data.meshInfo.size() * sizeof(MeshInfo));
+  ipu_utils::logger()->trace("BVH nodes: {} bytes per tile", data.bvhNodes.size() * sizeof(CompactBVH2Node));
+  ipu_utils::logger()->trace("Index buffer: {} bytes per tile", data.meshTris.size() * sizeof(Triangle));
+  ipu_utils::logger()->trace("Vertex buffer: {} bytes per tile", data.meshVerts.size() * sizeof(embree_utils::Vec3fa));
+  ipu_utils::logger()->trace("Normal buffer: {} bytes per tile", data.meshNormals.size() * sizeof(embree_utils::Vec3fa));
 }
 
 poplar::program::Sequence IpuScene::fpSetupProg(poplar::Graph& graph) const {
@@ -179,13 +187,6 @@ void IpuScene::createComputeVars(poplar::Graph& ioGraph,
   serialScene.buildTensor(ioGraph, poplar::UNSIGNED_CHAR, {serialiser.bytes.size()});
 
   samplesPerPixel.buildTensor(ioGraph, poplar::UNSIGNED_INT, {1u});
-
-  ipu_utils::logger()->debug("Geometry info: {} bytes per tile", data.geometry.size() * sizeof(GeomRef));
-  ipu_utils::logger()->debug("Mesh info: {} bytes per tile", data.meshInfo.size() * sizeof(MeshInfo));
-  ipu_utils::logger()->debug("BVH nodes: {} bytes per tile", data.bvhNodes.size() * sizeof(CompactBVH2Node));
-  ipu_utils::logger()->debug("Index buffer: {} bytes per tile", data.meshTris.size() * sizeof(Triangle));
-  ipu_utils::logger()->debug("Vertex buffer: {} bytes per tile", data.meshVerts.size() * sizeof(embree_utils::Vec3fa));
-  ipu_utils::logger()->debug("Normal buffer: {} bytes per tile", data.meshNormals.size() * sizeof(embree_utils::Vec3fa));
 
   // The scene data vars get uploaded once by the host and then broadcast to every
   // tile so we store them in a separate map to keep track of that more easily.
@@ -352,7 +353,7 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
   // Add a program to broadcast the scene data to all compute tiles:
   std::map<std::string, poplar::Tensor> varReceivingSlices;
 
-  ipu_utils::logger()->info("Building scene broadcast");
+  ipu_utils::logger()->trace("Building scene broadcast");
   poplar::program::Sequence broadcastSceneData;
   for (auto& p : ioSceneVars) {
     auto src = p.second; // Data is received to this slice
@@ -368,7 +369,7 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
     broadcastSceneData.add(poplar::program::WriteUndef(p.second, "undef_" + p.first)); // Copy the broadcast view to the rest of the tiles
   }
 
-  ipu_utils::logger()->info("Building init sequence");
+  ipu_utils::logger()->trace("Building init sequence");
   poplar::program::Sequence init = {
     fpSetupProg(computeGraph),
     spheresVar.buildWrite(computeGraph, optimiseMemUse),
@@ -510,7 +511,7 @@ void IpuScene::execute(poplar::Engine& engine, const poplar::Device& device) {
   }
   auto endTime = std::chrono::steady_clock::now();
   auto secs = std::chrono::duration<double>(endTime - startTime).count();
-  ipu_utils::logger()->info("Host to DRAM ray bandwidth: {} GB/sec", (1e-9 * rayBatches.size() * totalRaysPerIteration * sizeof(embree_utils::TraceResult) / secs));
+  ipu_utils::logger()->debug("Host to DRAM ray bandwidth: {} GB/sec", (1e-9 * rayBatches.size() * totalRaysPerIteration * sizeof(embree_utils::TraceResult) / secs));
 
   // Include initialisation (send BVH to device) in IPU timings:
   ipu_utils::logger()->info("IPU Rendering started.");
@@ -531,7 +532,7 @@ void IpuScene::execute(poplar::Engine& engine, const poplar::Device& device) {
     }
     endTime = std::chrono::steady_clock::now();
     secs = std::chrono::duration<double>(endTime - startTime).count();
-    ipu_utils::logger()->info("DRAM to host ray bandwidth: {} GB/sec", (1e-9 * rayBatches.size() * totalRaysPerIteration * sizeof(embree_utils::TraceResult) / secs));
+    ipu_utils::logger()->debug("DRAM to host ray bandwidth: {} GB/sec", (1e-9 * rayBatches.size() * totalRaysPerIteration * sizeof(embree_utils::TraceResult) / secs));
   }
 
   // Copy result back into original stream:
