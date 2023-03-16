@@ -166,8 +166,10 @@ void pathTrace(const SceneRef& sceneRef,
       } else {
         // Mark an error:
         result.rgb *= std::numeric_limits<float>::quiet_NaN();
+        result.h.flags |= HitRecord::ERROR;
       }
     } else {
+      result.h.flags |= HitRecord::ESCAPED;
       break;
     }
 

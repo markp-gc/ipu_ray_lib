@@ -266,8 +266,10 @@ public:
             } else {
               // Mark an error:
               result.rgb *= std::numeric_limits<float>::quiet_NaN();
+              hit.flags |= HitRecord::ERROR;
             }
           } else {
+            hit.flags |= HitRecord::ESCAPED;
             break;
           }
 

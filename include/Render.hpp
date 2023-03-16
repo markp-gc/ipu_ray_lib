@@ -66,6 +66,8 @@ void traceShadowRay(const CompactBvh& bvh,
       color += matRgb * shadowRay.direction.dot(hit.normal); // lambertian
     }
     result.rgb = color;
+  } else {
+    hit.flags |= embree_utils::HitRecord::ESCAPED;
   }
 }
 

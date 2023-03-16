@@ -226,18 +226,26 @@ struct HitRecord {
   static constexpr std::uint16_t InvalidGeomID = std::numeric_limits<std::uint16_t>::max();
   static constexpr std::uint32_t InvalidPrimID = std::numeric_limits<std::uint32_t>::max();
 
+  // Bitmasks for the hit flag:
+  static constexpr std::uint16_t ERROR = 1;
+  static constexpr std::uint16_t ESCAPED = 2;
+
   HitRecord() {}
   HitRecord(const Vec3fa& origin, const Vec3fa& dir)
     : r(origin, dir),
       primID(InvalidPrimID),
       normal(0.f, 0.f, 1.f), // Match Embree init
-      geomID(InvalidGeomID)
+      geomID(InvalidGeomID),
+      flags(0u)
   {}
+
+  void clearFlags() { flags = 0u; }
 
   Ray r;
   std::uint32_t primID;
   Vec3fa normal;
   std::uint16_t geomID;
+  std::uint16_t flags;
 };
 
 struct TraceResult {
