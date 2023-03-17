@@ -244,6 +244,7 @@ struct HitRecord {
   Ray r;
   std::uint32_t primID;
   Vec3fa normal;
+  Vec3fa throughput;
   std::uint16_t geomID;
   std::uint16_t flags;
 };

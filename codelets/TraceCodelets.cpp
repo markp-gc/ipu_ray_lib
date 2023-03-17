@@ -226,7 +226,7 @@ public:
       for (auto r = workerID; r < wrappedRays.size(); r += numWorkers()) {
         auto& result = wrappedRays[r];
         auto& hit = result.h;
-        Vec3fa throughput(1.f, 1.f, 1.f);
+        hit.throughput = Vec3fa(1.f, 1.f, 1.f);
         Vec3fa color(0.f, 0.f, 0.f);
 
         for (auto i = 0u; i < maxPathLength; ++i) {
@@ -241,7 +241,7 @@ public:
             const auto& material = wrappedMaterials[wrappedMatIDs[hit.geomID]];
 
             if (material.emissive) {
-              color += throughput * material.emission;
+              color += hit.throughput * material.emission;
             }
 
             if (material.type == Material::Type::Diffuse) {
@@ -253,16 +253,16 @@ public:
               //const float w = std::abs(wiWorld.dot(normal));
               //const float pdf = cosineHemispherePdf(wiTangent);
               // The terms w / (Pi * pdf) all cancel for diffuse throughput:
-              throughput *= material.albedo; // * (w / (Pi * pdf)); // PDF terms cancel for cosine weighted samples
+              hit.throughput *= material.albedo; // * (w / (Pi * pdf)); // PDF terms cancel for cosine weighted samples
               //throughput *= material.albedo * (wiTangent.z * 2.f); // Apply PDF for hemisphere samples (sampleDir is in tangent space so cos(theta) == z-coord).
             } else if (material.type == Material::Type::Specular) {
               hit.r.direction = reflect(hit.r.direction, hit.normal);
-              throughput *= material.albedo;
+              hit.throughput *= material.albedo;
             } else if (material.type == Material::Type::Refractive) {
               const float u1 = hw_uniform_0_1();
               const auto [dir, refracted] = dielectric(hit.r, hit.normal, material.ior, u1);
               hit.r.direction = dir;
-              if (refracted) { throughput *= material.albedo; }
+              if (refracted) { hit.throughput *= material.albedo; }
             } else {
               // Mark an error:
               result.rgb *= std::numeric_limits<float>::quiet_NaN();
@@ -270,14 +270,13 @@ public:
             }
           } else {
             hit.flags |= HitRecord::ESCAPED;
-            color += throughput * Vec3fa(1.f, 1.f, 1.f); // ambient
             break;
           }
 
           // Random stopping:
           if (i > rouletteStartDepth) {
             const float u1 = hw_uniform_0_1();
-            if (evaluateRoulette(u1, throughput)) { break; }
+            if (evaluateRoulette(u1, hit.throughput)) { break; }
           }
         }
 

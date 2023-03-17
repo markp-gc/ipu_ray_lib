@@ -120,7 +120,7 @@ void pathTrace(const SceneRef& sceneRef,
                T& primLookupFunc) {
   using namespace embree_utils;
   auto& hit = result.h;
-  Vec3fa throughput(1.f, 1.f, 1.f);
+  hit.throughput = Vec3fa(1.f, 1.f, 1.f);
   Vec3fa color(0.f, 0.f, 0.f);
 
   for (auto i = 0u; i < scene.pathTrace->maxPathLength; ++i) {
@@ -135,7 +135,7 @@ void pathTrace(const SceneRef& sceneRef,
       const auto& material = sceneRef.materials[sceneRef.matIDs[hit.geomID]];
 
       if (material.emissive) {
-        color += throughput * material.emission;
+        color += hit.throughput * material.emission;
       }
 
       if (material.type == Material::Type::Diffuse) {
@@ -151,25 +151,25 @@ void pathTrace(const SceneRef& sceneRef,
         //const float w = std::abs(wiWorld.dot(normal));
         //const float pdf = cosineHemispherePdf(wiTangent);
         // The terms w / (Pi * pdf) all cancel for diffuse throughput:
-        throughput *= material.albedo; // * (w / (Pi * pdf)); // PDF terms cancel for cosine weighted samples
+        hit.throughput *= material.albedo; // * (w / (Pi * pdf)); // PDF terms cancel for cosine weighted samples
         //throughput *= material.albedo * (wiTangent.z * 2.f); // Apply PDF for hemisphere samples (sampleDir is in tangent space so cos(theta) == z-coord).
       } else if (material.type == Material::Type::Specular) {
         hit.r.direction = reflect(hit.r.direction, hit.normal);
-        throughput *= material.albedo;
+        hit.throughput *= material.albedo;
       } else if (material.type == Material::Type::Refractive) {
         float u1;
         #pragma omp critical(sample)
         { u1 = scene.pathTrace->sampler.uniform_0_1(); }
         const auto [dir, refracted] = dielectric(hit.r, hit.normal, material.ior, u1);
         hit.r.direction = dir;
-        if (refracted) { throughput *= material.albedo; }
+        if (refracted) { hit.throughput *= material.albedo; }
       } else {
         // Mark an error:
         result.rgb *= std::numeric_limits<float>::quiet_NaN();
-        result.h.flags |= HitRecord::ERROR;
+        hit.flags |= HitRecord::ERROR;
       }
     } else {
-      result.h.flags |= HitRecord::ESCAPED;
+      hit.flags |= HitRecord::ESCAPED;
       break;
     }
 
@@ -180,7 +180,7 @@ void pathTrace(const SceneRef& sceneRef,
       {
         u1 = scene.pathTrace->sampler.uniform_0_1();
       }
-      if (evaluateRoulette(u1, throughput)) { break; }
+      if (evaluateRoulette(u1, hit.throughput)) { break; }
     }
   }
 
@@ -331,7 +331,7 @@ void addOptions(boost::program_options::options_description& desc) {
   desc.add_options()
   ("help", "Show command help.")
   ("ipus", po::value<std::uint32_t>()->default_value(4), "Select number of IPUs (each IPU will be a replica).")
-  ("rays-per-worker", po::value<std::size_t>()->default_value(6), "Set the number of rays processed by each thread in each iteration. Lower values relieve I/O tile memory pressure.")
+  ("rays-per-worker", po::value<std::size_t>()->default_value(1), "Set the number of rays processed by each thread in each iteration. Lower values relieve I/O tile memory pressure.")
   ("width,w", po::value<std::int32_t>()->default_value(768), "Set rendered image width.")
   ("height,h", po::value<std::int32_t>()->default_value(432), "Set rendered image height.")
   ("crop", po::value<std::string>()->default_value(""),
