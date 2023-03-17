@@ -270,6 +270,7 @@ public:
             }
           } else {
             hit.flags |= HitRecord::ESCAPED;
+            color += throughput * Vec3fa(1.f, 1.f, 1.f); // ambient
             break;
           }
 

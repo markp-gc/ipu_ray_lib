@@ -7,6 +7,7 @@
 #include <serialisation/Serialiser.hpp>
 #include <Arrays.hpp>
 #include <Primitives.hpp>
+#include <Scene.hpp>
 
 template <std::uint32_t BaseAlign>
 void serialise(Serialiser<BaseAlign>& s, const CompactBVH2Node& n) {
@@ -28,6 +29,19 @@ void serialise(Serialiser<BaseAlign>& s, const ConstArrayRef<T>& arr) {
   std::uint64_t size = arr.size(); // size_t is not portable
   s << size;
   s.write(arr.cbegin(), size);
+}
+
+template <std::uint32_t BaseAlign>
+void serialise(Serialiser<BaseAlign>& ss, const SceneRef& s) {
+  ss << s.geometry;
+  ss << s.meshInfo;
+  ss << s.meshTris;
+  ss << s.meshVerts;
+  ss << s.meshNormals;
+  ss << s.matIDs;
+  ss << s.materials;
+  ss << s.bvhNodes;
+  ss << s.maxLeafDepth;
 }
 
 // Specialisation for primitives and arrays of primitives

@@ -44,15 +44,7 @@ IpuScene::IpuScene(const std::vector<Sphere>& _spheres,
     totalRayBufferSize(0u) // Needs to be set before device to host streams execute.
 {
   // Serialise the scene description for transfer to IPU:
-  serialiser << sceneRef.geometry;
-  serialiser << sceneRef.meshInfo;
-  serialiser << sceneRef.meshTris;
-  serialiser << sceneRef.meshVerts;
-  serialiser << sceneRef.meshNormals;
-  serialiser << sceneRef.matIDs;
-  serialiser << sceneRef.materials;
-  serialiser << sceneRef.bvhNodes;
-  serialiser << sceneRef.maxLeafDepth;
+  serialiser << sceneRef;
   ipu_utils::logger()->debug("Serialised scene size: {} KiB", serialiser.bytes.size() / 1024.f);
 
   // Log individual component sizes at trace level:

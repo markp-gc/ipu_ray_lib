@@ -177,7 +177,9 @@ void pathTrace(const SceneRef& sceneRef,
     if (i > scene.pathTrace->roulletteStartDepth) {
       float u1;
       #pragma omp critical(sample)
-      { u1 = scene.pathTrace->sampler.uniform_0_1(); }
+      {
+        u1 = scene.pathTrace->sampler.uniform_0_1();
+      }
       if (evaluateRoulette(u1, throughput)) { break; }
     }
   }
