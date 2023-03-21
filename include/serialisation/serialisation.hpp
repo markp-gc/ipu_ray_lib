@@ -19,14 +19,14 @@ void serialise(Serialiser<BaseAlign>& s, const CompactBVH2Node& n) {
 
 template <std::uint32_t BaseAlign, typename T>
 void serialise(Serialiser<BaseAlign>& s, const std::vector<T>& arr) {
-  std::uint64_t size = arr.size(); // size_t is not portable
+  std::uint32_t size = arr.size(); // size_t is not portable
   s << size;
   s.write((const T*)arr.data(), size);
 }
 
 template <std::uint32_t BaseAlign, typename T>
 void serialise(Serialiser<BaseAlign>& s, const ConstArrayRef<T>& arr) {
-  std::uint64_t size = arr.size(); // size_t is not portable
+  std::uint32_t size = arr.size(); // size_t is not portable
   s << size;
   s.write(arr.cbegin(), size);
 }
@@ -60,7 +60,7 @@ void serialise(Serialiser<BaseAlign>& ss, const Disc& d) {
 
 template <std::uint32_t BaseAlign>
 void serialise(Serialiser<BaseAlign>& ss, const std::vector<Sphere>& arr) {
-  std::uint64_t size = arr.size(); // size_t is not portable
+  std::uint32_t size = arr.size(); // size_t is not portable
   ss << size;
   for (const auto& s : arr) {
     ss << s;
@@ -69,7 +69,7 @@ void serialise(Serialiser<BaseAlign>& ss, const std::vector<Sphere>& arr) {
 
 template <std::uint32_t BaseAlign>
 void serialise(Serialiser<BaseAlign>& ss, const std::vector<Disc>& arr) {
-  std::uint64_t size = arr.size(); // size_t is not portable
+  std::uint32_t size = arr.size(); // size_t is not portable
   ss << size;
   for (const auto& d : arr) {
     ss << d;

@@ -30,7 +30,7 @@ struct Serialiser {
   }
 
   template <typename T>
-  std::uint64_t calculatePadding() {
+  std::uint32_t calculatePadding() {
     // Work out if we need padding:
     const auto currentByteOffset = BaseAlign + bytes.size();
     const auto rem = currentByteOffset % alignof(T);
@@ -53,7 +53,7 @@ struct Serialiser {
   // Write bytes directly to end of buffer.
   // Returns the destination ptr.
   template <typename T>
-  void* write(const T* src, std::uint64_t size) {
+  void* write(const T* src, std::uint32_t size) {
     const auto count = size * sizeof(T); 
     const auto pad = calculatePadding<T>();
     bytes.resize(bytes.size() + pad + count);

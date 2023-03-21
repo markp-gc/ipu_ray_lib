@@ -19,7 +19,7 @@ void deserialise(Deserialiser<BaseAlign>& d, CompactBVH2Node& n) {
 #ifndef __POPC__
 template <std::uint32_t BaseAlign, typename T>
 void deserialise(Deserialiser<BaseAlign>& d, std::vector<T>& arr) {
-  std::uint64_t size;
+  std::uint32_t size;
   d >> size;
   arr.clear();
   arr.resize(size);
@@ -29,7 +29,7 @@ void deserialise(Deserialiser<BaseAlign>& d, std::vector<T>& arr) {
 
 template <typename T, std::uint32_t BaseAlign>
 ConstArrayRef<T> deserialiseArrayRef(Deserialiser<BaseAlign>& d) {
-  std::uint64_t size;
+  std::uint32_t size;
   d >> size;
   d.template skipPadding<T>();
   ConstArrayRef<T> arr((T*)d.getPtr(), size);

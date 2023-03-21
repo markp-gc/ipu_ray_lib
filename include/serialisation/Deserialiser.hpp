@@ -24,7 +24,7 @@ struct Deserialiser {
 #endif
 
   template <typename T>
-  std::uint64_t calculatePadding() {
+  std::uint32_t calculatePadding() {
     // Work out if the data would have been written with padding:
     const auto offset = (uintptr_t)(ptr + BaseAlign);
     const auto rem = offset % alignof(T);
@@ -48,7 +48,7 @@ struct Deserialiser {
 
   // Read bytes directly from current point in buffer:
   template <typename T>
-  void read(T* dst, std::uint64_t size) {
+  void read(T* dst, std::uint32_t size) {
     auto bytes = size * sizeof(T);
     const auto pad = calculatePadding<T>();
     checkForEndOfData(pad + bytes);
@@ -58,7 +58,7 @@ struct Deserialiser {
   }
 
   const std::uint8_t* getPtr() const { return ptr; }
-  void skip(std::uint64_t count) {
+  void skip(std::uint32_t count) {
     checkForEndOfData(count);
     ptr += count;
   }
@@ -74,7 +74,7 @@ private:
   const std::uint8_t* const end;
   const std::uint8_t* ptr;
 
-  void checkForEndOfData(std::uint64_t readSize) {
+  void checkForEndOfData(std::uint32_t readSize) {
     auto newPtr = ptr + readSize;
     if (newPtr > end) {
 #ifdef __POPC__
