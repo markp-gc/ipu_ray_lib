@@ -291,6 +291,7 @@ std::vector<embree_utils::TraceResult> renderIPU(
 
   auto ipus = args["ipus"].as<std::uint32_t>();
   auto rpw = args["rays-per-worker"].as<std::size_t>();
+  ipu_utils::logger()->debug("IPU samples: {} rays-per-worker: {}", sceneRef.samplesPerPixel, rpw);
   IpuScene ipuScene(spheres, discs, sceneRef, rayStream, rpw, rayCallbackPtr);
   ipuScene.setRuntimeConfig(
     ipu_utils::RuntimeConfig {
