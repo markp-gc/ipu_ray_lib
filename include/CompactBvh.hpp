@@ -19,10 +19,10 @@ struct CompactBvh {
     return nodes.front().toBounds();
   }
 
-  ConstArrayRef<CompactBVH2Node> getNodes() const { return nodes; }
+  const ArrayRef<CompactBVH2Node>& getNodes() const { return nodes; }
   const std::uint32_t getMaxDepth() const { return stackSize; }
 
-  CompactBvh(ConstArrayRef<CompactBVH2Node> nodesRef,
+  CompactBvh(ArrayRef<CompactBVH2Node> nodesRef,
              std::uint32_t maxTraversalDepth)
   : nodes(nodesRef), stackSize(maxTraversalDepth) {}
 
@@ -139,6 +139,6 @@ struct CompactBvh {
   }
 
 private:
-  const ConstArrayRef<CompactBVH2Node> nodes;
+  const ArrayRef<CompactBVH2Node> nodes;
   const std::uint32_t stackSize;
 };

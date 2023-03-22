@@ -48,24 +48,28 @@ struct SceneData {
 #endif // ifndef __IPU__
 
 struct SceneRef {
-  ConstArrayRef<GeomRef> geometry;
-  ConstArrayRef<MeshInfo> meshInfo;
-  ConstArrayRef<Triangle> meshTris;
-  ConstArrayRef<embree_utils::Vec3fa> meshVerts;
-  ConstArrayRef<embree_utils::Vec3fa> meshNormals;
-  ConstArrayRef<std::uint32_t> matIDs;
-  ConstArrayRef<Material> materials;
-  ConstArrayRef<CompactBVH2Node> bvhNodes;
+  ArrayRef<GeomRef> geometry;
+  ArrayRef<MeshInfo> meshInfo;
+  ArrayRef<Triangle> meshTris;
+  ArrayRef<embree_utils::Vec3fa> meshVerts;
+  ArrayRef<embree_utils::Vec3fa> meshNormals;
+  ArrayRef<std::uint32_t> matIDs;
+  ArrayRef<Material> materials;
+  ArrayRef<CompactBVH2Node> bvhNodes;
   std::uint32_t maxLeafDepth; // Max depth of BVH tree: i.e. size of stack required for traversal.
-  std::uint64_t rngSeed;
+
+  // Params used in path-trace kernel:
   float imageWidth;
   float imageHeight;
   float fovRadians;
   float antiAliasScale;
-  CropWindow window;
-  std::uint32_t samplesPerPixel;
   std::uint32_t maxPathLength; // Hard limit on number of bounces in path tracing.
   std::uint32_t rouletteStartDepth; // Random stopping enabled at this depth
+  std::uint32_t samplesPerPixel;
+
+  // Params used external to kernel:
+  std::uint64_t rngSeed;
+  CropWindow window;
   bool pathTrace;
 };
 

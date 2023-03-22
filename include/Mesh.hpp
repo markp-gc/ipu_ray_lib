@@ -143,4 +143,4 @@ struct TriangleMesh : Primitive {
 using HostTriangleMesh = TriangleMesh<std::vector>;
 #endif
 
-using CompiledTriangleMesh = TriangleMesh<ConstArrayRef>;
+using CompiledTriangleMesh = TriangleMesh<ArrayRef>;

@@ -25,7 +25,7 @@ void serialise(Serialiser<BaseAlign>& s, const std::vector<T>& arr) {
 }
 
 template <std::uint32_t BaseAlign, typename T>
-void serialise(Serialiser<BaseAlign>& s, const ConstArrayRef<T>& arr) {
+void serialise(Serialiser<BaseAlign>& s, const ArrayRef<T>& arr) {
   std::uint32_t size = arr.size(); // size_t is not portable
   s << size;
   s.write(arr.cbegin(), size);
@@ -42,6 +42,13 @@ void serialise(Serialiser<BaseAlign>& ss, const SceneRef& s) {
   ss << s.materials;
   ss << s.bvhNodes;
   ss << s.maxLeafDepth;
+  ss << s.imageWidth;
+  ss << s.imageHeight;
+  ss << s.fovRadians;
+  ss << s.antiAliasScale;
+  ss << s.maxPathLength;
+  ss << s.rouletteStartDepth;
+  ss << s.samplesPerPixel;
 }
 
 // Specialisation for primitives and arrays of primitives

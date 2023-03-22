@@ -62,9 +62,19 @@ struct ArrayRef {
   ArrayRef(T* ptr, std::uint32_t numElements)
     : data(ptr), len(numElements) {}
 
+  ArrayRef(ArrayRef& a)  : data(a.data), len(a.len) {}
+  ArrayRef(ArrayRef&& a) : data(a.data), len(a.len) {}
+
   ArrayRef& operator = (ArrayRef& a) {
     data = a.data;
     len = a.len;
+    return *this;
+  }
+
+  ArrayRef& operator = (ArrayRef&& a) {
+    data = a.data;
+    len = a.len;
+    return *this;
   }
 
 #ifndef __POPC__
@@ -83,10 +93,16 @@ struct ArrayRef {
     return data[i];
   }
 
+  const T& operator[] (std::uint32_t i) const {
+    return data[i];
+  }
+
   std::uint32_t size() const { return len; }
 
   T& front() { return data[0]; }
   T& back() { return data[len - 1]; }
+  const T& front() const { return data[0]; }
+  const T& back() const { return data[len - 1]; }
 
   T* begin() { return data; }
   T* end() { return data + len; }
@@ -94,8 +110,8 @@ struct ArrayRef {
   const T* cend()   const { return data + len; }
 
 private:
-  T* const data;
-  const std::uint32_t len;
+  T* data;
+  std::uint32_t len;
 };
 
 // Stack with a fixed maximum capacity with similar interface
@@ -126,10 +142,10 @@ public:
 template <typename T>
 class WrappedArray {
     std::size_t nexti;
-    ArrayRef<T> store;
+    ArrayRef<T>& store;
 
 public:
-    WrappedArray(const ArrayRef<T>& array)
+    WrappedArray(ArrayRef<T>& array)
       : nexti(0),
         store(array)
     {}

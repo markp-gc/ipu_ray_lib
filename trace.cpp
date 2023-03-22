@@ -210,9 +210,9 @@ std::vector<embree_utils::TraceResult> renderCPU(
     }
     meshes.emplace_back(
       embree_utils::Bounds3d(), // Don't actually need this bound box for rendering...
-      ConstArrayRef(&sceneRef.meshTris[info.firstIndex], info.numTriangles),
-      ConstArrayRef(&sceneRef.meshVerts[info.firstVertex], info.numVertices),
-      ConstArrayRef(&sceneRef.meshNormals[firstNormalIndex], numNormals)
+      ArrayRef(&sceneRef.meshTris[info.firstIndex], info.numTriangles),
+      ArrayRef(&sceneRef.meshVerts[info.firstVertex], info.numVertices),
+      ArrayRef(&sceneRef.meshNormals[firstNormalIndex], numNormals)
     );
   }
 
@@ -448,24 +448,24 @@ int main(int argc, char** argv) {
   // can be backed by either dynamic (for CPU) or static (for IPU) arrays. This allows the CPU code to
   // be almost identical to IPU code which makes development and debugging quicker:
   SceneRef sceneRef {
-    ConstArrayRef(customScene.geometry),
-    ConstArrayRef(customScene.meshInfo),
-    ConstArrayRef(customScene.meshTris),
-    ConstArrayRef(customScene.meshVerts),
-    ConstArrayRef(customScene.meshNormals),
-    ConstArrayRef(customScene.matIDs),
-    ConstArrayRef(customScene.materials),
-    ConstArrayRef(customScene.bvhNodes),
+    ArrayRef(customScene.geometry),
+    ArrayRef(customScene.meshInfo),
+    ArrayRef(customScene.meshTris),
+    ArrayRef(customScene.meshVerts),
+    ArrayRef(customScene.meshNormals),
+    ArrayRef(customScene.matIDs),
+    ArrayRef(customScene.materials),
+    ArrayRef(customScene.bvhNodes),
     customScene.bvhMaxDepth,
-    args["seed"].as<std::uint64_t>(),
     (float)imageWidth,
     (float)imageHeight,
     scene.camera.horizontalFov,
     args["anti-alias"].as<float>(),
-    window,
-    args["samples"].as<std::uint32_t>(),
     args["max-path-length"].as<std::uint32_t>(),
     args["roulette-start-depth"].as<std::uint32_t>(),
+    args["samples"].as<std::uint32_t>(),
+    args["seed"].as<std::uint64_t>(),
+    window,
     scene.pathTrace != nullptr
   };
 

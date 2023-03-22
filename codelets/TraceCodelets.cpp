@@ -43,6 +43,16 @@ inline float hw_uniform_0_1() {
   return __builtin_ipu_urand_f32() + .5f;
 }
 
+// Global data (per-tile) that stores scene data.
+// This is a workaround for Poplar not supporting
+// connection of arbitrary structured data to vertices.
+// It is global so that we only have to pay the cost of
+// unpacking it once when/if it changes:
+SceneRef tileLocalScene;
+ArrayRef<Sphere> wrappedSpheres;
+ArrayRef<Disc> wrappedDiscs;
+ArrayRef<CompiledTriangleMesh> wrappedMeshes;
+
 /// Some objects have been transferred direct from CPU to IPU but
 /// will contain incomptible pointer data but compatible plain old data.
 /// This vertex re-allocates these objects/structures for the IPU.
@@ -59,17 +69,16 @@ public:
   Input<Vector<unsigned char, poplar::VectorLayout::SPAN, 16>> serialisedScene;
 
   bool compute() {
-    // De-serialise:
+    // De-serialise the scene ref data. This is stored in a tile-global object.
+    // The global object can be used by any subsequent vertex that keeps the
+    // `serialisedScene` byte tensor live:
     Deserialiser<16> d(&serialisedScene[0], serialisedScene.size());
-    auto wrappedGeometry = deserialiseArrayRef<GeomRef>(d);
-    auto wrappedMeshInfo = deserialiseArrayRef<MeshInfo>(d);
-    auto wrappedTris = deserialiseArrayRef<Triangle>(d);
-    auto wrappedVerts = deserialiseArrayRef<Vec3fa>(d);
-    auto wrappedNormals = deserialiseArrayRef<Vec3fa>(d);
+    d >> tileLocalScene;
 
     // For each primitive copy its position to a tensor:
-    auto wrappedSpheres = ConstArrayRef<Sphere>::reinterpret(&spheres[0], spheres.size());
-    auto wrappedDiscs = ConstArrayRef<Disc>::reinterpret(&discs[0], discs.size());
+    wrappedSpheres = ArrayRef<Sphere>::reinterpret(&spheres[0], spheres.size());
+    wrappedDiscs   = ArrayRef<Disc>::reinterpret(&discs[0], discs.size());
+    wrappedMeshes  = ArrayRef<CompiledTriangleMesh>::reinterpret(&meshes[0], meshes.size());
 
     // Need to re-new anything that inherits from Primitive i.e. reconstruct in place
     // using placement-new! Any struct with pointers (e.g. vtable) will not be
@@ -83,21 +92,20 @@ public:
     // Basically this is all very dubious but works for now...
 
     // Mesh objects are constructed from the mesh info data:
-    auto wrappedMeshes = ConstArrayRef<CompiledTriangleMesh>::reinterpret(&meshes[0], meshes.size());
     auto meshIdx = 0u;
-    for (const auto& info : wrappedMeshInfo) {
+    for (const auto& info : tileLocalScene.meshInfo) {
       auto firstNormalIndex = 0u;
       auto numNormals = 0u;
-      if (wrappedNormals.size()) {
+      if (tileLocalScene.meshNormals.size()) {
         // If scene has normals assume every mesh has normals:
         firstNormalIndex = info.firstVertex;
         numNormals = info.numVertices;
       }
       new ((void*)&wrappedMeshes[meshIdx]) CompiledTriangleMesh(
         embree_utils::Bounds3d(),
-        ConstArrayRef(&wrappedTris[info.firstIndex], info.numTriangles),
-        ConstArrayRef(&wrappedVerts[info.firstVertex], info.numVertices),
-        ConstArrayRef(&wrappedNormals[firstNormalIndex], numNormals)
+        ArrayRef(&tileLocalScene.meshTris[info.firstIndex], info.numTriangles),
+        ArrayRef(&tileLocalScene.meshVerts[info.firstVertex], info.numVertices),
+        ArrayRef(&tileLocalScene.meshNormals[firstNormalIndex], numNormals)
       );
       meshIdx += 1;
     }
@@ -116,19 +124,15 @@ public:
 };
 
 // Look up the underlying primitive from a geometry type and ID:
-const Primitive* getPrimitive(
-  const GeomRef& geom,
-  const ConstArrayRef<Sphere>& spheres,
-  const ConstArrayRef<CompiledTriangleMesh>& meshes,
-  const ConstArrayRef<Disc>& discs
-) {
+const Primitive* primLookup(std::uint16_t geomID, std::uint32_t primID) {
+  const auto& geom = tileLocalScene.geometry[geomID];
   switch (geom.type) {
     case GeomType::Mesh:
-      return &meshes[geom.index];
+      return &wrappedMeshes[geom.index];
     case GeomType::Sphere:
-      return &spheres[geom.index];
+      return &wrappedSpheres[geom.index];
     case GeomType::Disc:
-      return &discs[geom.index];
+      return &wrappedDiscs[geom.index];
     case GeomType::NumTypes:
     default:
       return nullptr;
@@ -173,52 +177,23 @@ public:
   // Scene description and BVH:
   Input<Vector<unsigned char, poplar::VectorLayout::SPAN, 16>> serialisedScene;
 
-  // Other parameters:
-  std::uint32_t maxPathLength;
-  std::uint32_t rouletteStartDepth;
-  Input<std::uint32_t> samplesPerPixel;
-  float imageWidth;
-  float imageHeight;
-  float antiAliasScale;
-  float fovRadians;
-
   // Ray stream:
   InOut<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(TraceResult)>> rays;
 
   bool compute(unsigned int workerID) {
     // Wrap all byte arrays with their correct types:
-    auto wrappedSpheres = ConstArrayRef<Sphere>::reinterpret(&spheres[0], spheres.size());
-    auto wrappedMeshes = ConstArrayRef<CompiledTriangleMesh>::reinterpret(&meshes[0], meshes.size());
-    auto wrappedDiscs = ConstArrayRef<Disc>::reinterpret(&discs[0], discs.size());
-
-    // Unpack the scene data:
-    Deserialiser<16> d(&serialisedScene[0], serialisedScene.size());
-    auto wrappedGeometry = deserialiseArrayRef<GeomRef>(d);
-    auto wrappedMeshInfo = deserialiseArrayRef<MeshInfo>(d);
-    auto wrappedTris = deserialiseArrayRef<Triangle>(d);
-    auto wrappedVerts = deserialiseArrayRef<Vec3fa>(d);
-    auto wrappedNormals = deserialiseArrayRef<Vec3fa>(d);
-    auto wrappedMatIDs = deserialiseArrayRef<std::uint32_t>(d);
-    auto wrappedMaterials = deserialiseArrayRef<Material>(d);
-    auto wrappedBvhNodes = deserialiseArrayRef<CompactBVH2Node>(d);
-    std::uint32_t maxLeafDepth;
-    d >> maxLeafDepth;
-
     auto wrappedRays = ArrayRef<embree_utils::TraceResult>::reinterpret(&rays[0], rays.size());
 
     // Construct a BVH from all the wrapped arrays:
-    CompactBvh bvh(wrappedBvhNodes, maxLeafDepth);
+    CompactBvh bvh(tileLocalScene.bvhNodes, tileLocalScene.maxLeafDepth);
 
-    auto primLookup = [&](std::uint16_t geomID, std::uint32_t primID) {
-      const auto& geom = wrappedGeometry[geomID];
-      return getPrimitive(geom, wrappedSpheres, wrappedMeshes, wrappedDiscs);
-    };
-
-    for (auto s = 0u; s < samplesPerPixel; ++s) {
+    for (auto s = 0u; s < tileLocalScene.samplesPerPixel; ++s) {
       // Generate ray samples:
-      sampleCameraRays(workerID, imageWidth, imageHeight,
-                       float2{antiAliasScale, antiAliasScale},
-                       fovRadians, wrappedRays);
+      sampleCameraRays(workerID,
+                       tileLocalScene.imageWidth, tileLocalScene.imageHeight,
+                       float2{tileLocalScene.antiAliasScale, tileLocalScene.antiAliasScale},
+                       tileLocalScene.fovRadians,
+                       wrappedRays);
 
       // Intersect all rays against the BVH. Each worker starts processing offset by their worker IDs.
       // The external Poplar graph construction code ensures the number of rays to process on each
@@ -229,7 +204,7 @@ public:
         hit.throughput = Vec3fa(1.f, 1.f, 1.f);
         Vec3fa color(0.f, 0.f, 0.f);
 
-        for (auto i = 0u; i < maxPathLength; ++i) {
+        for (auto i = 0u; i < tileLocalScene.maxPathLength; ++i) {
           offsetRay(hit.r, hit.normal); // offset rays to avoid self intersection.
           // Reset ray limits for next bounce:
           hit.r.tMin = 0.f;
@@ -238,7 +213,7 @@ public:
 
           if (intersected) {
             updateHit(intersected, hit);
-            const auto& material = wrappedMaterials[wrappedMatIDs[hit.geomID]];
+            const auto& material = tileLocalScene.materials[tileLocalScene.matIDs[hit.geomID]];
 
             if (material.emissive) {
               color += hit.throughput * material.emission;
@@ -274,14 +249,14 @@ public:
           }
 
           // Random stopping:
-          if (i > rouletteStartDepth) {
+          if (i > tileLocalScene.rouletteStartDepth) {
             const float u1 = hw_uniform_0_1();
             if (evaluateRoulette(u1, hit.throughput)) { break; }
           }
-        }
+        } // end of path trace loop
 
         result.rgb += color;
-      }
+      } // end of loop over rays
 
     } // end of sample loop
 
@@ -294,7 +269,6 @@ public:
 /// to a fixed point light source.
 class ShadowTrace : public MultiVertex {
 public:
-
   // Storage for sphere, disc, and mesh primitives:
   Input<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(Sphere)>> spheres;
   Input<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(Disc)>> discs;
@@ -311,33 +285,14 @@ public:
   InOut<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(TraceResult)>> rays;
 
   bool compute(unsigned int workerID) {
-    // Wrap all byte arrays with their correct types:
-    auto wrappedSpheres = ConstArrayRef<Sphere>::reinterpret(&spheres[0], spheres.size());
-    auto wrappedMeshes = ConstArrayRef<CompiledTriangleMesh>::reinterpret(&meshes[0], meshes.size());
-    auto wrappedDiscs = ConstArrayRef<Disc>::reinterpret(&discs[0], discs.size());
-
     // Unpack the scene data:
     Deserialiser<16> d(&serialisedScene[0], serialisedScene.size());
-    auto wrappedGeometry = deserialiseArrayRef<GeomRef>(d);
-    auto wrappedMeshInfo = deserialiseArrayRef<MeshInfo>(d);
-    auto wrappedTris = deserialiseArrayRef<Triangle>(d);
-    auto wrappedVerts = deserialiseArrayRef<Vec3fa>(d);
-    auto wrappedNormals = deserialiseArrayRef<Vec3fa>(d);
-    auto wrappedMatIDs = deserialiseArrayRef<std::uint32_t>(d);
-    auto wrappedMaterials = deserialiseArrayRef<Material>(d);
-    auto wrappedBvhNodes = deserialiseArrayRef<CompactBVH2Node>(d);
-    std::uint32_t maxLeafDepth;
-    d >> maxLeafDepth;
+    d >> tileLocalScene;
 
     auto wrappedRays = ArrayRef<embree_utils::TraceResult>::reinterpret(&rays[0], rays.size());
 
-    auto primLookup = [&](std::uint16_t geomID, std::uint32_t primID) {
-      const auto& geom = wrappedGeometry[geomID];
-      return getPrimitive(geom, wrappedSpheres, wrappedMeshes, wrappedDiscs);
-    };
-
     // Construct a BVH from all the wrapped arrays:
-    CompactBvh bvh(wrappedBvhNodes, maxLeafDepth);
+    CompactBvh bvh(tileLocalScene.bvhNodes, tileLocalScene.maxLeafDepth);
 
     Vec3fa lp(lightPos[0], lightPos[1], lightPos[2]);
 
@@ -352,7 +307,7 @@ public:
 
       traceShadowRay(
         bvh,
-        wrappedMatIDs, wrappedMaterials,
+        tileLocalScene.matIDs, tileLocalScene.materials,
         ambientLightFactor,
         result, primLookup, lp);
     }

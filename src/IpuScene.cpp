@@ -157,8 +157,8 @@ IpuScene::createRayBatches(const poplar::Device& device, std::size_t numComputeT
   }
 
   if (rayBatches.size() < 2) {
-    throw std::runtime_error("Using for async I/O pipeline: number of batches per replica must be at least 2 "
-                              "to fill the pipeline.");
+    throw std::runtime_error("Using async I/O pipeline: number of batches per replica "
+                             "must be at least 2 to fill the pipeline.");
   }
 
   return rayBatches;
@@ -308,13 +308,6 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
     poplar::VertexRef rayTraceVertex;
     if (data.pathTrace) {
       rayTraceVertex = computeGraph.addVertex(traceCs, "PathTrace");
-      computeGraph.setInitialValue(rayTraceVertex["maxPathLength"], data.maxPathLength);
-      computeGraph.setInitialValue(rayTraceVertex["rouletteStartDepth"], data.rouletteStartDepth);
-      computeGraph.setInitialValue(rayTraceVertex["imageWidth"], data.imageWidth);
-      computeGraph.setInitialValue(rayTraceVertex["imageHeight"], data.imageHeight);
-      computeGraph.setInitialValue(rayTraceVertex["antiAliasScale"], data.antiAliasScale);
-      computeGraph.setInitialValue(rayTraceVertex["fovRadians"], data.fovRadians);
-      computeGraph.connect(rayTraceVertex["samplesPerPixel"], broadcastSceneVars["samplesPerPixel"][t][0]);
     } else {
       rayTraceVertex = computeGraph.addVertex(traceCs, "ShadowTrace");
       computeGraph.setInitialValue(rayTraceVertex["ambientLightFactor"], .05f);

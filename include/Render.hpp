@@ -36,8 +36,8 @@ void offsetRay(embree_utils::Ray& r, const embree_utils::Vec3fa& n) {
 /// from its geom and prim IDs.
 template <class T>
 void traceShadowRay(const CompactBvh& bvh,
-                    const ConstArrayRef<std::uint32_t>& matIDs,
-                    const ConstArrayRef<Material>& materials,
+                    const ArrayRef<std::uint32_t>& matIDs,
+                    const ArrayRef<Material>& materials,
                     float ambient,
                     embree_utils::TraceResult& result,
                     T& primLookupFunc,

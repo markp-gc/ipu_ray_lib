@@ -192,7 +192,7 @@ BOOST_AUTO_TEST_CASE(SerialiseArrayRef) {
   std::iota(v.begin(), v.end(), 0);
 
   // Serialise the vector via an array ref:
-  ConstArrayRef inRef(v);
+  ArrayRef inRef(v);
   Serialiser<16> s(1024);
   s << inRef;
   s << std::uint32_t(5u);
@@ -218,7 +218,7 @@ BOOST_AUTO_TEST_CASE(SerialiseAlignedArray) {
   };
 
   // Serialise the vector via an array ref:
-  ConstArrayRef inRef(v);
+  ArrayRef inRef(v);
   Serialiser<4> s(11);
   s << inRef;
   s << std::uint32_t(5u);

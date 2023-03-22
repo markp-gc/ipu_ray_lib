@@ -88,7 +88,7 @@ TriangleMesh<Storage>::intersectTriangle(std::uint32_t index, const RayShearPara
   return TriangleIntersection{t, b0, b1, b2};
 }
 
-template struct TriangleMesh<ConstArrayRef>;
+template struct TriangleMesh<ArrayRef>;
 
 #ifndef __IPU__
 template struct TriangleMesh<std::vector>;
