@@ -19,7 +19,7 @@ void RayCallback::fetch(void *p) {
   receiveIndex += scene.getRuntimeConfig().numReplicas;
   // Only log progress on one replica to reduce output:
   if (replica == scene.getRuntimeConfig().numReplicas - 1) {
-    ipu_utils::logger()->info("Ray-batches finished: {}/{}", receiveIndex, scene.getRayBatches().size());
+    ipu_utils::logger()->debug("Ray-batches finished: {}/{}", receiveIndex, scene.getRayBatches().size());
   }
 }
 
