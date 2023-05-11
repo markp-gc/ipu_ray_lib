@@ -3,6 +3,9 @@
 #include <IpuScene.hpp>
 #include <RayCallback.hpp>
 #include <serialisation/serialisation.hpp>
+#include "neural_networks/NifModel.hpp"
+#include <xoshiro.hpp>
+#include <io_utils.hpp>
 
 #include <poplar/CSRFunctions.hpp>
 #include <popops/Loop.hpp>
@@ -13,8 +16,6 @@
 #include <popops/Loop.hpp>
 #include <poprand/RandomGen.hpp>
 #include <poprand/codelets.hpp>
-
-#include <xoshiro.hpp>
 
 #include <vector>
 #include <random>
@@ -35,16 +36,20 @@ IpuScene::IpuScene(const std::vector<Sphere>& _spheres,
     seedTensor("hw_rng_seed"),
     loopLimit("loop_limit"),
     samplesPerPixel("samples_per_pixel"),
+    azimuthRotation("hdri_azimuth"),
     spheresVar("sphere_data"),
     discsVar("disc_data"),
     serialScene("serialScene"),
     rayFunc(fn), // If a callback is provided partial results will be streamed to the host.
     numComputeTiles(0u), // This is set in build().
     maxRaysPerWorker(raysPerWorker),
-    totalRayBufferSize(0u) // Needs to be set before device to host streams execute.
+    totalRayBufferSize(0u), // Needs to be set before device to host streams execute.
+    hdriRotationDegrees(0.f),
+    nifMemoryProportion(0.6),
+    nifMaxRaysPerBatch(0) // 0 interpretted as "auto"
 {
   // Serialise the scene description for transfer to IPU:
-  serialiser << sceneRef;
+  serialiser << data;
   ipu_utils::logger()->debug("Serialised scene size: {} KiB", serialiser.bytes.size() / 1024.f);
 
   // Log individual component sizes at trace level:
@@ -55,6 +60,8 @@ IpuScene::IpuScene(const std::vector<Sphere>& _spheres,
   ipu_utils::logger()->trace("Vertex buffer: {} bytes per tile", data.meshVerts.size() * sizeof(embree_utils::Vec3fa));
   ipu_utils::logger()->trace("Normal buffer: {} bytes per tile", data.meshNormals.size() * sizeof(embree_utils::Vec3fa));
 }
+
+IpuScene::~IpuScene() {}
 
 poplar::program::Sequence IpuScene::fpSetupProg(poplar::Graph& graph) const {
   poplar::program::Sequence prog;
@@ -164,13 +171,28 @@ IpuScene::createRayBatches(const poplar::Device& device, std::size_t numComputeT
   return rayBatches;
 }
 
+bool IpuScene::loadNifModel(const std::string& assetPath) {
+  try {
+    const auto metaFile = assetPath + "/nif_metadata.txt";
+    const auto h5File = assetPath + "/converted.hdf5";
+    auto nifData = std::make_shared<NifModel::Data>(h5File, metaFile);
+    nif = std::make_unique<NifModel>(nifData, "hdri_nif");
+    ipu_utils::logger()->info("Loaded NIF model from '{}'", assetPath);
+    return true;
+  } catch (std::exception& e) {
+    ipu_utils::logger()->error("Could not load NIF model from '{}'. Exception: {}", assetPath, e.what());
+  }
+
+  return false;
+}
+
 /// Create variables in the I/O graph to receive scene data. During initialisation
 /// The first tile in the I/O graph receives the data then broadcasts it to all
 /// the tiles in the copute graph.
 void IpuScene::createComputeVars(poplar::Graph& ioGraph,
                                  poplar::Graph& computeGraph,
                                  std::size_t numComputeTiles,
-                                 std::size_t perTileRayBufferSize) {
+                                 std::size_t maxRaysPerIteration) {
   // Add a variable to hold each primitive type:
   spheresVar.buildTensor(ioGraph, poplar::UNSIGNED_CHAR, {spheres.size() * sizeof(Sphere)});
   discsVar.buildTensor(ioGraph, poplar::UNSIGNED_CHAR, {discs.size() * sizeof(Disc)});
@@ -179,6 +201,7 @@ void IpuScene::createComputeVars(poplar::Graph& ioGraph,
   serialScene.buildTensor(ioGraph, poplar::UNSIGNED_CHAR, {serialiser.bytes.size()});
 
   samplesPerPixel.buildTensor(ioGraph, poplar::UNSIGNED_INT, {1u});
+  azimuthRotation.buildTensor(ioGraph, poplar::FLOAT, {});
 
   // The scene data vars get uploaded once by the host and then broadcast to every
   // tile so we store them in a separate map to keep track of that more easily.
@@ -191,7 +214,8 @@ void IpuScene::createComputeVars(poplar::Graph& ioGraph,
                                         {data.meshInfo.size() * sizeof(CompiledTriangleMesh)},
                                         "tri_meshes")},
     {"serialisedScene", serialScene.get()},
-    {"samplesPerPixel", samplesPerPixel.get()}
+    {"samplesPerPixel", samplesPerPixel.get()},
+    {"azimuthRotation", azimuthRotation.get()}
   };
 
   // Map the receive buffers for scene data linearly across the IO tiles. We must
@@ -213,9 +237,110 @@ void IpuScene::createComputeVars(poplar::Graph& ioGraph,
   }
 
   // Ray data is distributed across tiles:
+  const auto perTileRayBufferSize = maxRaysPerIteration * sizeof(embree_utils::TraceResult);
   rayTraceVars = {
     {"rays", computeGraph.addVariable(poplar::UNSIGNED_CHAR, {numComputeTiles, perTileRayBufferSize}, "sram_ray_buffer")},
+    {"uvs", computeGraph.addVariable(poplar::FLOAT, {numComputeTiles, 2, maxRaysPerIteration}, "uv_coords")}
   };
+}
+
+IpuScene::NifResult IpuScene::buildNifHdri(poplar::Graph& g, std::unique_ptr<NifModel>& model, poplar::Tensor input) {
+  if (!model) {
+    throw std::runtime_error("Empty NIF model object.");
+  }
+
+  IpuScene::NifResult result;
+
+  bool optimiseStreamMemory = true;
+  auto propStr = std::to_string(nifMemoryProportion);
+  poplar::OptionFlags matmulOptions {
+    {"partialsType", "half"},
+    {"availableMemoryProportion", std::to_string(nifMemoryProportion)},
+    {"fullyConnectedPass", "INFERENCE_FWD"},
+    {"use128BitConvUnitLoad", "true"},
+    {"enableFastReduce", "true"}
+  };
+  ipu_utils::logger()->trace("NIF available memory proportion set to {}", propStr);
+
+  // We need to serialise the input into smaller batches to save memory.  Keep this
+  // part simple and find first divisor below the 'optimal' (empirically determined) batch size.
+  // Eventually Poplar will automatically calculate batch serialisation plans so overcomplicating
+  // this would be a waste of time.
+  input = input.dimShuffle({1, 0, 2});
+  ipu_utils::logger()->debug("NIF input shape: {}", input.shape());
+  unsigned fullBatchSize = input.numElements() / 2;
+  std::size_t optimalBatchSize;
+  if (nifMaxRaysPerBatch == 0) {
+    // If option is 0 then we automatically set the batch size so that a single batch
+    // is fed to the network for each ray batch (often this will not be optimal but it
+    // gives users a comprehensible starting point for tuning the parameter themselves):
+    optimalBatchSize = 1440 * 6 * maxRaysPerWorker;
+  } else {
+    // Overide with user specified value:
+    optimalBatchSize = nifMaxRaysPerBatch;
+  }
+  ipu_utils::logger()->trace("Max NIF batch-size set to: {}", optimalBatchSize);
+
+  float optimalFactor = fullBatchSize / (float)optimalBatchSize;
+  ipu_utils::logger()->trace("Optimal NIF serialisation-factor: {}", optimalFactor);
+  unsigned closestFactor = std::ceil(optimalFactor);
+  while (fullBatchSize % closestFactor) {
+    closestFactor += 1;
+  }
+  std::size_t batchSize = fullBatchSize / closestFactor;
+  ipu_utils::logger()->debug("Batch-size serialisation full-size: {} serial-size: {} factor: {}", fullBatchSize, batchSize, closestFactor);
+  if (batchSize > optimalBatchSize) {
+    throw std::runtime_error("Could not find an efficient batch serialisation.");
+  }
+
+  // Make slices of the input for batch serialisation size:
+  auto inputSlice = g.addVariable(input.elementType(), {2, batchSize}, poplar::VariableMappingMethod::LINEAR, "input_slice");
+  ipu_utils::logger()->debug("Serialised input shape: {}", inputSlice.shape());
+
+  auto nifGraphFunc = g.addFunction(
+      model->buildInference(g, matmulOptions, cache, optimiseStreamMemory, inputSlice));
+
+  // Analyse the model for the full batch size per replica:
+  model->analyseModel(model->getBatchSize() * closestFactor);
+
+  auto nifResult = model->getOutput();
+  ipu_utils::logger()->debug("NIF serialised result tensor shape: {}", nifResult.shape());
+  auto nifResultSlice = nifResult.slice(0, batchSize, 0);
+
+  // Need to make a tensor that can be used to pre arrange NIF results back onto correct tiles.
+  // (Note: Poplar's automatic rearrangement produces an inefficient result in this case):
+  std::vector<std::size_t> outputShape = {input.dim(1), input.dim(2), 3};
+  result.bgr = g.addVariable(nifResult.elementType(), outputShape, "result_rgb");
+  ipu_utils::logger()->debug("NIF full result.bgr tensor shape: {}", result.bgr.shape());
+
+  // Now ready to construct the program. Since the number of serialisation steps will be small
+  // we construct the serialisation loop unrolled (slices can be static):
+  poplar::program::Sequence unrolledLoop;
+
+  for (auto s = 0u; s < closestFactor; ++s) {
+    auto uvSlice = input.reshape({2, fullBatchSize}).slice(s * batchSize, (s + 1) * batchSize, 1);
+    auto resultSlice = result.bgr.reshape({fullBatchSize, 3}).slice(s * batchSize, (s + 1) * batchSize, 0);
+
+    unrolledLoop.add(poplar::program::Copy(uvSlice, inputSlice));
+    unrolledLoop.add(poplar::program::Call(nifGraphFunc));
+    unrolledLoop.add(poplar::program::Copy(nifResultSlice, resultSlice));
+  }
+
+  result.init = model->buildInit(g, optimiseStreamMemory);
+  result.exec = unrolledLoop;
+  return result;
+}
+
+void IpuScene::setHdriRotation(float degrees) {
+  hdriRotationDegrees = degrees;
+}
+
+void IpuScene::setAvailableMemoryProportion(float proportion) {
+  nifMemoryProportion = proportion;
+}
+
+void IpuScene::setMaxNifBatchSize(std::size_t raysPerBatch) {
+  nifMaxRaysPerBatch = raysPerBatch;
 }
 
 void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
@@ -233,11 +358,9 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
   numComputeTiles = computeGraph.getTarget().getNumTiles();
   const auto numWorkers = target.getNumWorkerContexts();
   const auto maxRaysPerIteration = maxRaysPerWorker * numWorkers;
-  const auto perTileRayBufferSize = maxRaysPerIteration * sizeof(embree_utils::TraceResult);
-  totalRayBufferSize = numComputeTiles * perTileRayBufferSize;
+  totalRayBufferSize = numComputeTiles * maxRaysPerIteration * sizeof(embree_utils::TraceResult);
   ipu_utils::logger()->debug("Num compute tiles: {}", numComputeTiles);
-  ipu_utils::logger()->debug("Ray buffer total size: {}", totalRayBufferSize);
-  ipu_utils::logger()->debug("Ray buffer: {} bytes per tile", perTileRayBufferSize);
+  ipu_utils::logger()->debug("Trace result buffer total size: {}", totalRayBufferSize);
 
   // Optimise stream copies to reduce memory use:
   const bool optimiseMemUse = true;
@@ -247,7 +370,7 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
   popops::addCodelets(computeGraph);
   poprand::addCodelets(computeGraph);
 
-  createComputeVars(ioGraph, computeGraph, numComputeTiles, perTileRayBufferSize);
+  createComputeVars(ioGraph, computeGraph, numComputeTiles, maxRaysPerIteration);
 
   // Add remote buffer to store ray-batches:
   auto rayBatchesPerReplica = calcNumBatches(target, numComputeTiles) / getRuntimeConfig().numReplicas;
@@ -288,26 +411,37 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
   // Compute sets:
   auto initCs = computeGraph.addComputeSet("init_data_cs");
   auto traceCs = computeGraph.addComputeSet("trace_cs");
+  auto preProcessCs = computeGraph.addComputeSet("preproc_cs");
+  auto postProcessCs = computeGraph.addComputeSet("postproc_cs");
 
   for (auto t = 0u; t < numComputeTiles; ++t) {
-    // Some host side objects contain pointers (e.g. vtables). Hence, they are not
-    // compatible with IPU so they need to re-newed (with placement new) on the IPU.
-    // Note: plain old data (POD) structs can usually be made comaptible with IPU so
-    // some other data arrays are not reinitialised.
+    // This vertex unpacks the scene data on tile:
     auto initBuildVertex = computeGraph.addVertex(initCs, "BuildDataStructures");
     computeGraph.setTileMapping(initBuildVertex, t);
+
+    // Serialised scene buffer:
+    computeGraph.connect(initBuildVertex["serialisedScene"], broadcastSceneVars["serialisedScene"][t]);
+
+    // Extra scene data. Eventually these should be serialised with everything else:
     computeGraph.connect(initBuildVertex["spheres"], broadcastSceneVars["spheres"][t]);
     computeGraph.connect(initBuildVertex["discs"], broadcastSceneVars["discs"][t]);
     computeGraph.connect(initBuildVertex["meshes"], broadcastSceneVars["meshes"][t]);
-
-    // Scene buffer:
-    computeGraph.connect(initBuildVertex["serialisedScene"], broadcastSceneVars["serialisedScene"][t]);
 
     // Ray tracing:
     // Choose between two ray trace modes at compile time.
     poplar::VertexRef rayTraceVertex;
     if (data.pathTrace) {
       rayTraceVertex = computeGraph.addVertex(traceCs, "PathTrace");
+      poplar::Tensor vertexLoopCount;
+      if (nif) {
+        // We need to tell PathTrace vertex not to loop:
+        vertexLoopCount = computeGraph.addConstant(poplar::UNSIGNED_INT, {}, 1u);
+      } else {
+        // We need to tell PathTrace vertex to loop data.samplesPerPixel times:
+        vertexLoopCount = computeGraph.addConstant(poplar::UNSIGNED_INT, {}, data.samplesPerPixel);
+      }
+      computeGraph.connect(rayTraceVertex["vertexSampleCount"], vertexLoopCount);
+      computeGraph.setTileMapping(vertexLoopCount, t);
     } else {
       rayTraceVertex = computeGraph.addVertex(traceCs, "ShadowTrace");
       computeGraph.setInitialValue(rayTraceVertex["ambientLightFactor"], .05f);
@@ -361,8 +495,46 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
     discsVar.buildWrite(computeGraph, optimiseMemUse),
     serialScene.buildWrite(ioGraph, optimiseMemUse),
     samplesPerPixel.buildWrite(computeGraph, optimiseMemUse),
+    azimuthRotation.buildWrite(computeGraph, optimiseMemUse),
     broadcastSceneData
   };
+
+  poplar::program::Sequence rayTraceBody {
+    poplar::program::Execute(traceCs)
+  };
+
+  if (data.pathTrace) {
+    if (nif) {
+      // Build the NIF graph and tile map the result:
+      auto result = buildNifHdri(computeGraph, nif, rayTraceVars["uvs"]);
+
+      for (auto t = 0u; t < numComputeTiles; ++t) {
+        computeGraph.setTileMapping(result.bgr[t], t);
+
+        // Add vertices to convert escaped rays to uv coordinates:
+        auto preProcVertex = computeGraph.addVertex(preProcessCs, "PreProcessEscapedRays");
+        computeGraph.setTileMapping(preProcVertex, t);
+        computeGraph.connect(preProcVertex["results"], rayTraceVars["rays"][t]);
+        computeGraph.connect(preProcVertex["u"], rayTraceVars["uvs"][t][0]);
+        computeGraph.connect(preProcVertex["v"], rayTraceVars["uvs"][t][1]);
+        computeGraph.connect(preProcVertex["azimuthRotation"], broadcastSceneVars["azimuthRotation"][t][0]);
+
+        // Add vertices to
+        auto postProcVertex = computeGraph.addVertex(postProcessCs, "PostProcessEscapedRays");
+        computeGraph.setTileMapping(postProcVertex, t);
+        computeGraph.connect(postProcVertex["results"], rayTraceVars["rays"][t]);
+        computeGraph.connect(postProcVertex["bgr"], result.bgr[t]);
+      }
+
+      // Add program for NIF inference:
+      rayTraceBody.add(poplar::program::Execute(preProcessCs));
+      rayTraceBody.add(result.exec);
+      rayTraceBody.add(poplar::program::Execute(postProcessCs));
+
+      // Add program for initialising NIF weights:
+      init.add(result.init);
+    }
+  }
 
   // Add program to set HW RNG seed to the init sequence:
   seedTensor.buildTensor(computeGraph, poplar::UNSIGNED_INT, {2});
@@ -396,9 +568,17 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
   poplar::Tensor pred = popops::sub(ioGraph, loopLimit.get(), saveIndex, cond, "calc_loop_condition");
   cond.add(poplar::program::AssumeEqualAcrossReplicas(pred, "pred_assume_equal"));
 
-  poplar::program::Sequence rayTraceBody {
-    poplar::program::Execute(traceCs)
-  };
+  poplar::program::Sequence sampleLoop;
+  if (data.pathTrace && nif) {
+    // For path tracing with a NIF HDRI we need to make an additional inner loop
+    // around the path-trace and NIF programs.
+    sampleLoop.add(poplar::program::Repeat(data.samplesPerPixel, rayTraceBody));
+  } else {
+    // For path-tracing with no NIF lookup we can lower the sample loop inside the vertex,
+    // and for a single pass render there is no loop so in these cases we just
+    // execute the body once:
+    sampleLoop = rayTraceBody;
+  }
 
   // Main loop should read and write DRAM
   // asynchronously with compute:
@@ -409,7 +589,7 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
     incLoadIndex,
     //poplar::program::PrintTensor("load idx: ", loadIndex),
     loadRaysFromDRAM,
-    rayTraceBody,
+    sampleLoop,
     copyRaysComputeToIO,
     copyRaysIOToCompute
   };
@@ -421,7 +601,7 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
     //poplar::program::PrintTensor("load idx: ", loadIndex),
     loadRaysFromDRAM,
     copyRaysIOToCompute,
-    rayTraceBody,
+    sampleLoop,
     incLoadIndex,
     //poplar::program::PrintTensor("load idx: ", loadIndex),
     loadRaysFromDRAM,
@@ -431,7 +611,7 @@ void IpuScene::build(poplar::Graph& graph, const poplar::Target& target) {
     //poplar::program::PrintTensor("save idx: ", saveIndex),
     saveRays,
     incSaveIndex,
-    rayTraceBody,
+    sampleLoop,
     copyRaysComputeToIO,
     //poplar::program::PrintTensor("save idx: ", saveIndex),
     saveRays,
@@ -462,6 +642,9 @@ void IpuScene::execute(poplar::Engine& engine, const poplar::Device& device) {
   loopLimit.connectWriteStream(engine, &numBatchesPerReplica);
   samplesPerPixel.connectWriteStream(engine, &data.samplesPerPixel);
 
+  float radians = (hdriRotationDegrees / 360.f) * (2.0 * M_PI);
+  azimuthRotation.connectWriteStream(engine, &radians);
+
   // Set a different RNG seed per-replica:
   xoshiro::State s;
   xoshiro::seed(s, data.rngSeed);
@@ -469,6 +652,11 @@ void IpuScene::execute(poplar::Engine& engine, const poplar::Device& device) {
     seedValues.push_back(xoshiro::next128ss(s));
   }
   seedTensor.connectWriteStream(engine, seedValues);
+
+  // Connect stream for NIF weights:
+  if (nif) {
+    nif->connectStreams(engine);
+  }
 
   // Note: these copy host pointers into the on device data! We will
   // overwrite by rebuilding the object before using it in the codelet:
@@ -496,7 +684,8 @@ void IpuScene::execute(poplar::Engine& engine, const poplar::Device& device) {
   }
   auto endTime = std::chrono::steady_clock::now();
   auto secs = std::chrono::duration<double>(endTime - startTime).count();
-  ipu_utils::logger()->debug("Host to DRAM ray bandwidth: {} GB/sec", (1e-9 * rayBatches.size() * totalRaysPerIteration * sizeof(embree_utils::TraceResult) / secs));
+  auto hostToDramBw = (1e-9 * rayBatches.size() * totalRaysPerIteration * sizeof(embree_utils::TraceResult) / secs);
+  ipu_utils::logger()->debug("Host to DRAM ray bandwidth: {} GB/sec", hostToDramBw);
 
   // Include initialisation (send BVH to device) in IPU timings:
   ipu_utils::logger()->info("IPU Rendering started.");
@@ -506,6 +695,7 @@ void IpuScene::execute(poplar::Engine& engine, const poplar::Device& device) {
   traceTimeSecs = std::chrono::duration<double>(endTime - startTime).count();
   ipu_utils::logger()->info("IPU Rendering finished.");
 
+  auto dramToHostBw = std::numeric_limits<float>::quiet_NaN();
   if (rayFunc == nullptr) {
     // No callback was set so read rays back to host from DRAM in bulk:
     startTime = std::chrono::steady_clock::now();
@@ -517,8 +707,10 @@ void IpuScene::execute(poplar::Engine& engine, const poplar::Device& device) {
     }
     endTime = std::chrono::steady_clock::now();
     secs = std::chrono::duration<double>(endTime - startTime).count();
-    ipu_utils::logger()->debug("DRAM to host ray bandwidth: {} GB/sec", (1e-9 * rayBatches.size() * totalRaysPerIteration * sizeof(embree_utils::TraceResult) / secs));
+    dramToHostBw = (1e-9 * rayBatches.size() * totalRaysPerIteration * sizeof(embree_utils::TraceResult) / secs);
   }
+
+  ipu_utils::logger()->debug("DRAM ray bandwidth (to/from): {} {} GB/sec", hostToDramBw, dramToHostBw);
 
   // Copy result back into original stream:
   auto hitItr = rayStream.begin();

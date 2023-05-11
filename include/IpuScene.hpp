@@ -10,12 +10,23 @@
 #include "Primitives.hpp"
 #include <serialisation/Serialiser.hpp>
 
+#include <poplin/MatMul.hpp>
+
 #include <functional>
+
+class NifModel;
 
 // IPU ray-tracing graph program builder. The program is designed to
 // be comaptible with an Embree/CPU based ray/path tracer for easy
 // reference and comparison.
 class IpuScene : public ipu_utils::BuilderInterface {
+
+  struct NifResult {
+    poplar::Tensor bgr;
+    poplar::program::Sequence init;
+    poplar::program::Sequence exec;
+  };
+
 public:
   using RayCallbackFn = std::function<void(std::size_t, const std::vector<embree_utils::TraceResult>&)>;
 
@@ -26,11 +37,17 @@ public:
            std::size_t raysPerWorker,
            RayCallbackFn* fn = nullptr);
 
-  virtual ~IpuScene() {}
+  virtual ~IpuScene();
 
   std::size_t getRayStreamSize() const;
 
   std::vector<std::vector<embree_utils::TraceResult>>& getRayBatches() { return rayBatches; }
+
+  bool loadNifModel(const std::string& assetPath);
+  NifResult buildNifHdri(poplar::Graph& g, std::unique_ptr<NifModel>& nif, poplar::Tensor uvs);
+  void setHdriRotation(float degrees);
+  void setAvailableMemoryProportion(float proportion);
+  void setMaxNifBatchSize(std::size_t raysPerBatch);
 
   void build(poplar::Graph& graph, const poplar::Target& target) override;
   void execute(poplar::Engine& engine, const poplar::Device& device) override;
@@ -49,6 +66,7 @@ private:
   ipu_utils::StreamableTensor seedTensor;
   ipu_utils::StreamableTensor loopLimit;
   ipu_utils::StreamableTensor samplesPerPixel;
+  ipu_utils::StreamableTensor azimuthRotation;
 
   // Variables to hold the primitive data:
   ipu_utils::StreamableTensor spheresVar;
@@ -63,6 +81,9 @@ private:
   std::map<std::string, poplar::Tensor> broadcastSceneVars;
   std::map<std::string, poplar::Tensor> rayTraceVars;
 
+  std::unique_ptr<NifModel> nif;
+  poplin::matmul::PlanningCache cache;
+
   std::vector<std::vector<embree_utils::TraceResult>> rayBatches;
   RayCallbackFn* rayFunc;
 
@@ -73,6 +94,9 @@ private:
   std::size_t numComputeTiles;
   std::size_t maxRaysPerWorker;
   std::size_t totalRayBufferSize;
+  float hdriRotationDegrees;
+  float nifMemoryProportion;
+  std::size_t nifMaxRaysPerBatch;
 
   poplar::program::Sequence fpSetupProg(poplar::Graph& graph) const;
 
@@ -84,5 +108,5 @@ private:
   void createComputeVars(poplar::Graph& ioGraph,
                          poplar::Graph& computeGraph,
                          std::size_t numComputeTiles,
-                         std::size_t sramRayBufferSize);
+                         std::size_t maxRaysPerIteration);
 };

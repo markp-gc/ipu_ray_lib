@@ -1,0 +1,52 @@
+{
+  "embedding_dimension": 12,
+  "embedding_sigma": 2.0,
+  "encode_params": {
+    "eps": 1e-08,
+    "log_tone_map": true,
+    "max": 3.4299468994140625,
+    "mean": [
+      -2.3514461517333984,
+      -2.2660605907440186,
+      -1.9648972749710083
+    ],
+    "transfer_function": "log"
+  },
+  "keras_model": "/home/ubuntu/workspace/nif_models/urban_alley_01_4k_fp16_yuv",
+  "name": "/home/ubuntu/workspace/hdris/urban_alley_01_4k.exr",
+  "original_image_shape": [
+    2048,
+    4096,
+    3
+  ],
+  "train_command": [
+    "train_nif.py",
+    "--train-samples",
+    "8000000",
+    "--epochs",
+    "1000",
+    "--callback-period",
+    "100",
+    "--fp16",
+    "--loss-scale",
+    "16384",
+    "--color-space",
+    "yuv",
+    "--layer-count",
+    "6",
+    "--layer-size",
+    "320",
+    "--batch-size",
+    "1024",
+    "--tensorboard-dir",
+    "/home/ubuntu/workspace/tensorboard/logs/",
+    "--callback-period",
+    "100",
+    "--embedding-dimension",
+    "12",
+    "--input",
+    "/home/ubuntu/workspace/hdris/urban_alley_01_4k.exr",
+    "--model",
+    "/home/ubuntu/workspace/nif_models/urban_alley_01_4k_fp16_yuv"
+  ]
+}

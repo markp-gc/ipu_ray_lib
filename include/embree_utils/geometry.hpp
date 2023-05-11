@@ -13,7 +13,9 @@ namespace embree_utils {
 
 static constexpr double doublePi = 3.14159265358979323846264338327950288;
 static constexpr float Pi = doublePi;
+static constexpr float TwoPi = 2.0 * doublePi;
 static constexpr float InvPi = 1.0 / doublePi;
+static constexpr float Inv2Pi = 1.0 / (2.0 * doublePi);
 static constexpr float Piby2 = (float)(doublePi / 2.0);
 static constexpr float Piby4 = (float)(doublePi / 4.0);
 

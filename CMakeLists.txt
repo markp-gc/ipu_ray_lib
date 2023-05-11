@@ -3,12 +3,14 @@ cmake_minimum_required(VERSION 3.16)
 
 # Use C++20 to guarantee std::vector alignment for Embree:
 set (CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 set(embree_DIR /usr/include)
 
 find_package(Boost REQUIRED COMPONENTS program_options)
 find_package(OpenCV REQUIRED)
 find_package(OpenMP REQUIRED)
+find_package(HDF5 REQUIRED COMPONENTS CXX)
 #find_package(embree 3.0 REQUIRED)
 find_package(assimp 5 REQUIRED)
 find_package(Eigen3 REQUIRED NO_MODULE)
@@ -21,15 +23,23 @@ list(GET VERSION_LIST 1 POPLAR_VERSION_MINOR)
 list(GET VERSION_LIST 2 POPLAR_VERSION_PATCH)
 message(STATUS "Detected Poplar version ${POPLAR_VERSION_MAJOR}.${POPLAR_VERSION_MINOR}.${POPLAR_VERSION_PATCH}")
 
+message(STATUS "HDF5 LIBRARIES: ${HDF5_LIBRARIES}")
+add_definitions(${HDF5_DEFINITIONS})
+
 include_directories(
   ${Boost_INCLUDE_DIRS}
   ${OpenCV_INCLUDE_DIRS}
   ${ASSIMP_INCLUDE_DIRS}
   ${EIGEN3_INCLUDE_DIR}
   ${CMAKE_SOURCE_DIR}/ext
+  ${HDF5_INCLUDE_DIRS}
 )
 
 link_directories(${ASSIMP_LIBRARY_DIRS})
+
+# Add the neural network library:
+add_subdirectory(${CMAKE_SOURCE_DIR}/src/keras)
+add_subdirectory(${CMAKE_SOURCE_DIR}/src/neural_networks)
 
 # Add IPU ray tracing library:
 FILE(GLOB_RECURSE IPU_RAYLIB_HEADERS ${CMAKE_SOURCE_DIR}/include/*.hpp)
@@ -38,7 +48,7 @@ add_library(ipu_ray_lib SHARED ${IPU_RAYLIB_SRC})
 target_include_directories(ipu_ray_lib PUBLIC ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/include/embree_utils)
 
 # Poplar lib defines:
-set(POPLAR_LINK_LIBRARIES -lpoplar -lpopops -lpoputil -lpoprand -lgcl -lpvti)
+set(POPLAR_LINK_LIBRARIES -lpoplin -lpopnn -lpoplar -lpopops -lpoputil -lpoprand -lgcl -lpvti)
 
 # Add a trace executable:
 add_executable(trace trace.cpp TraceCodelets.gp)
@@ -52,6 +62,7 @@ target_link_libraries(trace
   ${ASSIMP_LIBRARIES}
   OpenMP::OpenMP_CXX
   Eigen3::Eigen
+  ${HDF5_LIBRARIES}
   ${POPLAR_LINK_LIBRARIES})
 
 # Explicitly define the subset of the library source files needed to build IPU codelet:

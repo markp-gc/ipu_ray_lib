@@ -553,3 +553,45 @@ SceneDescription makeCornellBoxScene(std::string& meshFile, bool boxOnly) {
   return scene;
 }
 
+/// Construct a simple "spheres" scene that contains only primitives (no meshes).
+SceneDescription makePrimitiveScene() {
+  SceneDescription scene;
+  scene.camera.horizontalFov = embree_utils::Piby2;
+
+  // Spheres:
+  scene.spheres.emplace_back(embree_utils::Vec3fa(-1.8575f, -0.98714f, -3.6f), 0.6f); // left
+  scene.spheres.emplace_back(embree_utils::Vec3fa(0.74795f, -0.55f, -4.3816f), 1.05f); // middle
+  scene.spheres.emplace_back(embree_utils::Vec3fa(1.9929f, -1.08666f, -3.23), 0.5f); // right
+  scene.spheres.emplace_back(embree_utils::Vec3fa(-0.19931, -1.183f, -2.75f), 0.4f); // front diffuse part
+  scene.spheres.emplace_back(embree_utils::Vec3fa(-0.19931, -1.183f, -2.75f), 0.4010f); // front clear-coat part
+
+  // Ground:
+  scene.discs.emplace_back(embree_utils::Vec3fa(0, 1, 0), embree_utils::Vec3fa(0.f, -1.6f, -5.22f), 3.5f);
+
+  const embree_utils::Vec3fa zero(0.f, 0.f, 0.f);
+  const embree_utils::Vec3fa one(1.f, 1.f, 1.f);
+  const embree_utils::Vec3fa sphereColour(1.f, .89f, .55f);
+  const embree_utils::Vec3fa clearCoatColour(.8f, .06f, .391f);
+  const embree_utils::Vec3fa floorColour(.98f, .76f, .66f);
+  const embree_utils::Vec3fa glassTint(0.75f, 0.75f, 0.75f);
+
+  // Define materials:
+  scene.materials = std::vector<Material>{
+    Material(sphereColour, zero, Material::Type::Diffuse),
+    Material(one, zero, Material::Type::Specular),
+    Material(glassTint, zero, Material::Type::Refractive),
+    Material(clearCoatColour, zero, Material::Type::Diffuse),
+    Material(one, zero, Material::Type::Refractive),
+    Material(floorColour, zero, Material::Type::Diffuse),
+  };
+
+  // Assign materials to primitives:
+  scene.matIDs = {0, 1, 2, 3, 4, 5};
+
+  const auto numPrims = scene.meshes.size() + scene.spheres.size() + scene.discs.size();
+  if (scene.matIDs.size() < numPrims) {
+    throw std::logic_error("All primitives must be assigned a material.");
+  }
+
+  return scene;
+}

@@ -1,6 +1,6 @@
 # Ray-Tracing on Graphcore IPUs
 
-This project is a redesign of an experimental ray/path-tracer for IPU (old version is [here](https://github.com/markp-gc/ipu_path_trace)). This new version is completely re-architected with the aim of making it more flexible and easier to extend. There has also been some attempt at making it interoperable with Embree (which is used to build an initial bounding volume hierachy).
+This project is a redesign of an experimental ray/path-tracer for the IPU (old version is [here](https://github.com/markp-gc/ipu_path_trace)). This new version is completely re-architected with the aim of making it more flexible and easier to extend. There has also been some attempt at making it interoperable with Embree (which is used to build an initial bounding volume hierachy).
 
 ![Example output image](images/example.png "Images path traced on IPU.")
 
@@ -25,10 +25,6 @@ Key improvements of this implementation over the original are:
   - No limit on the resolution of the images rendered as the entire result does not need to fit in SRAM at once.
   - Improved memory efficiency as only the minimal number of rays are kept on chip at once.
 - Streaming rays on/off chip happens in parallel with ray/path-tracing using overlapped I/O.
-- The implementation also contains two reference CPU code paths for comparison:
-  - One uses Embree.
-  - The other uses identical code to the IPU kernels but runs multi-threaded on CPU.
-  - The CPU implementation also aids debugging of IPU code as it can be run single threaded on the host and the program can compare IPU's ray-tracing AOVs to Embree's.
 - Path contributions are not stored and deferred: throughput is calculated during path-tracing which frees up more on-chip memory.
 - Hardware random numbers are generated inline in the path tracing kernel using the IPU's built-in RNG. This simplifies the code and also reduces SRAM consumption.
 - Avoid using sin/cos from std library (see [ext/math](ext/math/README.md)):
@@ -36,16 +32,16 @@ Key improvements of this implementation over the original are:
   - Saves ~9Kb of double emulation code per tile.
 - Multi-IPU rendering is now implemented using replicated graphs. The replicas process ray-data-parallel streams from DRAM.
   - This greatly speeds up graph construction and compile time: a multi-IPU path tracing graph can now be compiled from scratch in ~10 seconds.
-
-Note: some fancy features of the old version have not been ported to the new version:
-- Neural rendering (neural HDRI lighting) not yet implemented.
-- Remote-user interface with live preview not yet supported.
+- The implementation also contains two reference CPU code paths for comparison:
+  - One uses Embree.
+  - The other uses identical code to the IPU kernels but runs multi-threaded on CPU.
+  - The CPU implementations aid debugging of IPU code. E.g. it is easier to step through a single threaded program on CPU and we can compare IPU's ray-tracing AOVs to Embree/CPU references.
 
 ## Setting up your own machine:
 
-If you would prefer an alternative to Paperspace you can use this [Dockerfile](https://github.com/markp-gc/docker-files/blob/main/graphcore/poplar_dev/Dockerfile) on a cloud service of your choice or even manually install the apt dependencies listed in it on your own system. In either case you will need to follow instructions for your cloud/system to set it up yourself. (You will need to install the Poplar SDK and setup your machine so you can see at least 4 IPUs if this has not been configured for you.)
+If you have access to your own IPU machine you can use this [Dockerfile](https://github.com/markp-gc/docker-files/blob/main/graphcore/poplar_dev/Dockerfile) on a cloud service of your choice or even manually install the apt dependencies listed there in a bare metal system. In either case you will need to follow instructions for your cloud/system to set it up yourself (e.g. install the Poplar SDK and configure VIPU to see at least 4 IPUs.)
 
-Once your system is configured you can now clone and build this repository. The build uses CMake:
+Once your system is configured you can clone and build this repository. The build uses CMake:
 ```
 git clone --recursive https://github.com/markp-gc/ipu_ray_lib
 mkdir -p ipu_ray_lib/build
@@ -94,3 +90,8 @@ scenes by inspecting it. You can render the scene from the DAE file like this
 ```
 ./trace -w 1440 -h 1440 --render-mode path-trace --visualise rgb --samples 4000 --ipus 4 --ipu-only --mesh-file ../assets/test_scene.dae --load-normals --log-level debug
 ```
+
+## Testing and Development
+
+If you want to modify the library we recommend you run through the testing notebook as this will gives
+a more detailed run through of the application ![LITERATE_TEST.ipynb](LITERATE_TEST.ipynb).

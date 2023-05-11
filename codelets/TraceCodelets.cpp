@@ -179,6 +179,7 @@ public:
 
   // Ray stream:
   InOut<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(TraceResult)>> rays;
+  Input<unsigned> vertexSampleCount; // Number of samples to take inside the vertex itself
 
   bool compute(unsigned int workerID) {
     // Wrap all byte arrays with their correct types:
@@ -187,13 +188,11 @@ public:
     // Construct a BVH from all the wrapped arrays:
     CompactBvh bvh(tileLocalScene.bvhNodes, tileLocalScene.maxLeafDepth);
 
-    for (auto s = 0u; s < tileLocalScene.samplesPerPixel; ++s) {
+    for (auto s = 0u; s < vertexSampleCount; ++s) {
       // Generate ray samples:
-      sampleCameraRays(workerID,
-                       tileLocalScene.imageWidth, tileLocalScene.imageHeight,
-                       float2{tileLocalScene.antiAliasScale, tileLocalScene.antiAliasScale},
-                       tileLocalScene.fovRadians,
-                       wrappedRays);
+      sampleCameraRays(workerID, tileLocalScene.imageWidth, tileLocalScene.imageHeight,
+                      float2{tileLocalScene.antiAliasScale, tileLocalScene.antiAliasScale},
+                      tileLocalScene.fovRadians, wrappedRays);
 
       // Intersect all rays against the BVH. Each worker starts processing offset by their worker IDs.
       // The external Poplar graph construction code ensures the number of rays to process on each
@@ -258,7 +257,7 @@ public:
         result.rgb += color;
       } // end of loop over rays
 
-    } // end of sample loop
+    } // end of sampling loop
 
     return true;
   }
@@ -310,6 +309,72 @@ public:
         tileLocalScene.matIDs, tileLocalScene.materials,
         ambientLightFactor,
         result, primLookup, lp);
+    }
+
+    return true;
+  }
+};
+
+// Take ray results and calculate UV coords for all the escaped rays
+// in order to lookup lighting values from the HDRI environment map.
+// UVs are calculated using equirectangular projection.
+class PreProcessEscapedRays : public MultiVertex {
+public:
+  InOut<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(TraceResult)>> results;
+  Input<float> azimuthRotation;
+  Output<Vector<float>> u;
+  Output<Vector<float>> v;
+
+  bool compute(unsigned workerId) {
+    constexpr auto workerCount = numWorkers();
+    auto wrappedResults = ConstArrayRef<embree_utils::TraceResult>::reinterpret(&results[0], results.size());
+
+    // Parallelise over all workers (each worker starts at a different offset):
+    for (auto r = workerId; r < wrappedResults.size(); r += workerCount) {
+      auto& result = wrappedResults[r];
+      auto& hit = result.h;
+      if (hit.flags & HitRecord::ESCAPED) {
+        const auto& dir = hit.r.direction;
+        // Convert ray direction to UV coords using equirectangular projection.
+        // Calc assumes ray-dir was already normalised (note: normalised in Ray constructor).
+        auto theta = acosf(dir.y);
+        auto phi = atan2(dir.z, dir.x) + azimuthRotation;
+        if (phi < 0.f) {
+          phi += TwoPi;
+        } else if (phi > TwoPi) {
+          phi -= TwoPi;
+        }
+        u[r] = theta * InvPi;
+        v[r] = phi * Inv2Pi;
+      } else {
+        // Avoid fp exceptions as these could otherwise remain uninitialised:
+        u[r] = 0.f;
+        v[r] = 0.f;
+      }
+    }
+
+    return true;
+  }
+};
+
+// Update escaped rays with the result of env-map lighting lookup:
+class PostProcessEscapedRays : public MultiVertex {
+public:
+  InOut<Vector<unsigned char, poplar::VectorLayout::SPAN, alignof(TraceResult)>> results;
+  Vector<Input<Vector<float>>> bgr;
+
+  bool compute(unsigned workerId) {
+    constexpr auto workerCount = numWorkers();
+    auto wrappedResults = ArrayRef<embree_utils::TraceResult>::reinterpret(&results[0], results.size());
+
+    // Parallelise over all workers (each worker starts at a different offset):
+    for (auto r = workerId; r < wrappedResults.size(); r += workerCount) {
+      auto& result = wrappedResults[r];
+      auto& hit = result.h;
+      if (hit.flags & HitRecord::ESCAPED) {
+        auto v = bgr[r];
+        result.rgb += hit.throughput * Vec3fa(v[2], v[1], v[0]);
+      }
     }
 
     return true;

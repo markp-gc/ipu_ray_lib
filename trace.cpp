@@ -306,6 +306,14 @@ std::vector<embree_utils::TraceResult> renderIPU(
     }
   );
 
+  auto nifPath = args["nif-hdri"].as<std::string>();
+  if (!nifPath.empty()) {
+    ipuScene.loadNifModel(nifPath);
+  }
+  ipuScene.setHdriRotation(args.at("hdri-rotation").as<float>());
+  ipuScene.setAvailableMemoryProportion(args.at("available-memory-proportion").as<float>());
+  ipuScene.setMaxNifBatchSize(args.at("max-nif-batch-size").as<std::size_t>());
+
   // Hard code a large timeout. There is a
   // sync with the host ofter each ray batch but
   // a single batch could take a long time when a
@@ -331,6 +339,7 @@ void addOptions(boost::program_options::options_description& desc) {
   namespace po = boost::program_options;
   desc.add_options()
   ("help", "Show command help.")
+  ("outprefix,o", po::value<std::string>()->default_value("out"), "Set the output filename prefix.")
   ("ipus", po::value<std::uint32_t>()->default_value(4), "Select number of IPUs (each IPU will be a replica).")
   ("rays-per-worker", po::value<std::size_t>()->default_value(1), "Set the number of rays processed by each thread in each iteration. Lower values relieve I/O tile memory pressure.")
   ("width,w", po::value<std::int32_t>()->default_value(768), "Set rendered image width.")
@@ -344,14 +353,23 @@ void addOptions(boost::program_options::options_description& desc) {
                 "(That library does not handle all formats well even if they are 'supported': "
                 "consult the Blender export guide in the README. "
                 "If no mesh file is specified the scene defaults to an built-in Cornell box scene.")
+  ("nif-hdri", po::value<std::string>()->default_value(""),
+    "Path to the 'assets.extra' directory of a saved keras NIF model.")
+  ("hdri-rotation", po::value<float>()->default_value(0.f), "Azimuthal rotation for HDRI environment map (degrees).")
   ("load-normals", po::bool_switch()->default_value(false), "When loading a mesh file normals are ignored by default (to save on-chip memory). If you use this flag they will be loaded (and interpolated).")
-  ("box-only", po::bool_switch()->default_value(false), "If rendering the built-in scene only render the original Cornell box without extra elements.")
+  ("scene", po::value<std::string>()->default_value("box"), "Choose one of the built in scenes from [box-simple, box, spheres] (only valid when not specifying 'mesh-file').")
   ("visualise", po::value<std::string>()->default_value("rgb"), "Choose the render output values to test/visualise. One of [rgb, normal, hitpoint, tfar, color, id]")
   ("render-mode", po::value<std::string>()->default_value("path-trace"), "Choose type of render from [shadow-trace, path-trace]. To see result set visualise=rgb")
-  ("max-path-length", po::value<std::uint32_t>()->default_value(12), "Max path length for path tracing.")
-  ("roulette-start-depth", po::value<std::uint32_t>()->default_value(5), "Path length after which rays can be randomly terminated with prob. inversely proportional to their throughput.")
+  ("max-path-length", po::value<std::uint32_t>()->default_value(10), "Max path length for path tracing.")
+  ("roulette-start-depth", po::value<std::uint32_t>()->default_value(3), "Path length after which rays can be randomly terminated with prob. inversely proportional to their throughput.")
   ("samples", po::value<std::uint32_t>()->default_value(256), "Number of samples per pixel for path tracing.")
   ("seed", po::value<std::uint64_t>()->default_value(1442), "RNG seed.")
+  ("available-memory-proportion", po::value<float>()->default_value(0.6),
+    "Proportion of on-chip memory that is allowed for matrix multiplies.")
+  ("max-nif-batch-size", po::value<std::size_t>()->default_value(0),
+    "Maximum batch-size for the NIF neural network. If the required batch is larger than this "
+    "the batch will be serialised so that this value is not exceeded. 0 means \"auto\": i.e. batch "
+    "will be chosen so that it matches the size of a single ray-batch streamed from DRAM.")
   ("ipu-only", po::bool_switch()->default_value(false), "Only render on IPU (e.g. if you don't want to wait for slow CPU path tracing).")
   ("ipu-ray-callback", po::bool_switch()->default_value(false), "Retrieve partial results directly from the IPU during renderering via callback mechanism. "
                                                                 "By default the results are read from DRAM on one go at the end of renderering.")
@@ -398,7 +416,7 @@ boost::program_options::variables_map parseOptions(int argc, char** argv, boost:
   }
 
   if (vm.at("mesh-file").as<std::string>().empty() && vm.at("load-normals").as<bool>()) {
-    throw std::runtime_error("Option 'load-normals' is not valid without the 'mesh-file' option.");
+    throw std::runtime_error("Option 'load-normals' is not valid without the 'mesh-file' option");
   }
 
   po::notify(vm);
@@ -473,7 +491,7 @@ int main(int argc, char** argv) {
 
   const auto visModeStr = args.at("visualise").as<std::string>();
   const auto visMode = visStrMap.at(visModeStr);
-  const std::string outPrefix = "out_" + visModeStr + "_";
+  const std::string outPrefix = args.at("outprefix").as<std::string>() + "_" + visModeStr + "_";
 
   cv::Mat embreeImage(imageHeight, imageWidth, CV_32FC3);
   cv::Mat cpuImage(imageHeight, imageWidth, CV_32FC3);

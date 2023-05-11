@@ -255,10 +255,18 @@ SceneDescription buildSceneDescription(const boost::program_options::variables_m
 
   SceneDescription scene;
   if (meshFile.empty()) {
-    // If no meshfile is provided then default to the box. In this case a
-    // hard coded mesh file is displayed using one of the boxes as a plinth:
-    meshFile = "../assets/monkey_bust.glb";
-    scene = makeCornellBoxScene(meshFile, args["box-only"].as<bool>());
+    // If no meshfile is provided then we use one of the internal scenes.
+    const auto sceneSelection = args["scene"].as<std::string>();
+    if (sceneSelection == "box-simple" || sceneSelection == "box") {
+      // For the Cornell box scene we optionally need a meshfile that is
+      // rendered using one of the boxes as a plinth:
+      meshFile = "../assets/monkey_bust.glb";
+      scene = makeCornellBoxScene(meshFile, sceneSelection == "box-simple");
+    } else if (sceneSelection == "spheres") {
+      scene = makePrimitiveScene();
+    } else {
+      throw std::runtime_error("Invalid scene selection: '" + sceneSelection + "'");
+    }
   } else {
     // Otherwise load only the specified scene:
     scene = importScene(meshFile, args["load-normals"].as<bool>());

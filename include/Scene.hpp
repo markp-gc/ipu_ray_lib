@@ -65,9 +65,9 @@ struct SceneRef {
   float antiAliasScale;
   std::uint32_t maxPathLength; // Hard limit on number of bounces in path tracing.
   std::uint32_t rouletteStartDepth; // Random stopping enabled at this depth
-  std::uint32_t samplesPerPixel;
 
   // Params used external to kernel:
+  std::uint32_t samplesPerPixel;
   std::uint64_t rngSeed;
   CropWindow window;
   bool pathTrace;
