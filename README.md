@@ -1,10 +1,15 @@
-# Ray-Tracing on Graphcore IPUs
-
-This project is a redesign of an experimental ray/path-tracer for the IPU (old version is [here](https://github.com/markp-gc/ipu_path_trace)). This new version is completely re-architected with the aim of making it more flexible and easier to extend. There has also been some attempt at making it interoperable with Embree (which is used to build an initial bounding volume hierachy).
+# Ray tracing on Graphcore IPUs
 
 ![Example output image](images/example.png "Images path traced on IPU.")
 
-## Try it immediately in a free notebook
+This project is a redesign of an experimental ray/path tracer for Graphcore Intelligence Processing Units (IPUs). Key features are:
+* Executes on Graphcore IPUs (not nominally designed for rendering).
+* It combines path tracing with "neural rendering": a high-dynamic-range (HDR) environment light is encoded in a small neural image field (NIF).
+* The neural network weights, scene description and bounding volume hierachy (BVH) reside entirely in on-chip SRAM.
+
+The old version is [here](https://github.com/markp-gc/ipu_path_trace). This new version is completely re-architected with the aim of making it more flexible and easier to extend. There has also been some attempt at making it interoperable with Embree (which is used to build an initial BVH).
+
+## Try immediately in a free notebook
 
 The simplest way to experiment with the renderer is by launching a pre-built docker container on a cloud service.
 Paperspace, for example, provides free IPU-POD4 machines. Click this link and follow the instructions in the README.ipynb notebook:
@@ -13,7 +18,7 @@ Paperspace, for example, provides free IPU-POD4 machines. Click this link and fo
 
 (Using this method you do not have to worry about installing the right apt packages or configuring the IPU-POD.)
 
-## New Software Architecture
+## New software architecture
 
 Key improvements of this implementation over the original are:
 
@@ -76,7 +81,7 @@ If you compare 'out_normal_cpu.exr', 'out_normal_embree.exr', and 'out_normal_ip
 
 For a list of all command options see `./trace --help`.
 
-#### Rendering Other Scenes
+#### Rendering other scenes
 
 With the `--mesh-file` option the program will attempt to load any file format
 supported by the [Open Asset Import Library](https://github.com/assimp/assimp).
@@ -91,7 +96,7 @@ scenes by inspecting it. You can render the scene from the DAE file like this
 ./trace -w 1440 -h 1440 --render-mode path-trace --visualise rgb --samples 4000 --ipus 4 --ipu-only --mesh-file ../assets/test_scene.dae --load-normals --log-level debug
 ```
 
-## Train your own Environment Lighting Network
+## Train your own environment lighting network
 
 The neural environment light uses a neural image field (NIF) network. These are MLP based image approximators and are trained using Graphcore's NIF implementation: [NIF Training Scripts](https://github.com/graphcore/examples/tree/master/vision/neural_image_fields/tensorflow2).
 Before you start a training run you will need to source an equirectangular-projection HDRI image (e.g. those found here are suitable: [HDRIs](https://polyhaven.com/hdris)). Download a 2k or 4k image and pass it to the NIF traning script('--input'). You can play with the hyper parameters but the parameters below are a balanced compromise between size, computational cost and quality:
@@ -105,7 +110,7 @@ python3 train_nif.py --train-samples 8000000 --epochs 1000 --callback-period 100
 
 The trained keras model contains a subfolder called `assets.extra`, give that path to the path tracer using the `--nif-hdri` command line option.
 
-## Testing and Development
+## Testing and development
 
 If you want to modify the library we recommend you run through the testing notebook as this will gives
 a more detailed run through of the application ![LITERATE_TEST.ipynb](LITERATE_TEST.ipynb).
