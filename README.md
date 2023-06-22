@@ -112,10 +112,10 @@ The trained keras model contains a subfolder called `assets.extra`, give that pa
 
 ## Testing and development
 
-If you want to modify the library we recommend you run through the testing notebook as this will gives
-a more detailed run through of the application ![LITERATE_TEST.ipynb](LITERATE_TEST.ipynb).
+If you want to modify the library we recommend you run through the testing notebook as this gives
+a more detailed explanation of the application ![LITERATE_TEST.ipynb](LITERATE_TEST.ipynb).
 
-## Double Precision
+## Double precision
 
 First and second generation IPUs do not have hardware support for double precision, however C++ code using double's will still
 compile and run using LLVM's software emulation library. Double precision is typically used in the ray-triangle intersection
