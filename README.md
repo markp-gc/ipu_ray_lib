@@ -114,3 +114,16 @@ The trained keras model contains a subfolder called `assets.extra`, give that pa
 
 If you want to modify the library we recommend you run through the testing notebook as this will gives
 a more detailed run through of the application ![LITERATE_TEST.ipynb](LITERATE_TEST.ipynb).
+
+## Double Precision
+
+First and second generation IPUs do not have hardware support for double precision, however C++ code using double's will still
+compile and run using LLVM's software emulation library. Double precision is typically used in the ray-triangle intersection
+test when the intersection point lies on the triangle boundary (within single precision). In that case the computation falls
+back to double to get a "water tight" intersection test at the edges. If this level of precision is important to you there is a
+CMake configuration option to enable fall back to doubles: to enable it add this to the command line at configuration time
+`-DALLOW_DOUBLE_FALLBACK=1` (by default it is disabled).
+
+Note: there is a small, scene dependent, performance penalty and the double emulation code consumes extra tile memory (~3.7 KiB per tile).
+Depending on the scene, the performance penalty has been observed to be between a 1% and 6% lower path trace rate (the double code path is
+executed relatively infrequently).
