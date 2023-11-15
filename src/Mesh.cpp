@@ -35,6 +35,21 @@ TriangleMesh<Storage>::intersectTriangle(std::uint32_t index, const RayShearPara
   auto e1 = p2t.x * p0t.y - p2t.y * p0t.x;
   auto e2 = p0t.x * p1t.y - p0t.y * p1t.x;
 
+  #if ALLOW_DOUBLE_FALLBACK == 1
+  // Fall back to double precision for edge cases:
+  if ((e0 == 0.0f || e1 == 0.0f || e2 == 0.0f)) {
+      double p2txp1ty = (double)p2t.x * (double)p1t.y;
+      double p2typ1tx = (double)p2t.y * (double)p1t.x;
+      e0 = (float)(p2typ1tx - p2txp1ty);
+      double p0txp2ty = (double)p0t.x * (double)p2t.y;
+      double p0typ2tx = (double)p0t.y * (double)p2t.x;
+      e1 = (float)(p0typ2tx - p0txp2ty);
+      double p1txp0ty = (double)p1t.x * (double)p0t.y;
+      double p1typ0tx = (double)p1t.y * (double)p0t.x;
+      e2 = (float)(p1typ0tx - p1txp0ty);
+  }
+  #endif
+
   // Perform triangle edge and determinant tests
   if ((e0 < 0 || e1 < 0 || e2 < 0) &&
       (e0 > 0 || e1 > 0 || e2 > 0)) {

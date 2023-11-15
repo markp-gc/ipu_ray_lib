@@ -7,6 +7,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 set(embree_DIR /usr/include)
 
+# You can use this to enable or disable double precision fallback
+# in the triangle test. By default it is disabled as IPU has no
+# hardware double support (doubles will be emulated):
+set(ALLOW_DOUBLE_FALLBACK OFF CACHE BOOL "Enable double precision fallback (emulated on IPU).")
+
 find_package(Boost REQUIRED COMPONENTS program_options)
 find_package(OpenCV REQUIRED)
 find_package(OpenMP REQUIRED)
@@ -25,6 +30,15 @@ message(STATUS "Detected Poplar version ${POPLAR_VERSION_MAJOR}.${POPLAR_VERSION
 
 message(STATUS "HDF5 LIBRARIES: ${HDF5_LIBRARIES}")
 add_definitions(${HDF5_DEFINITIONS})
+
+if(ALLOW_DOUBLE_FALLBACK)
+  set(USE_DOUBLE "1")
+else()
+  set(USE_DOUBLE "0")
+endif()
+message(STATUS "Setting ALLOW_DOUBLE_FALLBACK: " ${USE_DOUBLE})
+
+add_compile_definitions(ALLOW_DOUBLE_FALLBACK=${USE_DOUBLE})
 
 include_directories(
   ${Boost_INCLUDE_DIRS}
@@ -79,7 +93,7 @@ add_custom_command(
   PRE_BUILD
   MAIN_DEPENDENCY ${CMAKE_SOURCE_DIR}/codelets/TraceCodelets.cpp
   DEPENDS ${IPU_RAYLIB_HEADERS} ${CODELET_SRC}
-  COMMAND popc -O3 -Werror -Wdouble-promotion --target ipu2 -I${CMAKE_SOURCE_DIR}/codelets -I${CMAKE_SOURCE_DIR}/include -I${CMAKE_SOURCE_DIR}/ext -I${CMAKE_SOURCE_DIR}/ext/math ${CODELET_SRC} -o TraceCodelets.gp
+  COMMAND popc -DALLOW_DOUBLE_FALLBACK=${USE_DOUBLE} -O3 -Werror -Wdouble-promotion --target ipu2 -I${CMAKE_SOURCE_DIR}/codelets -I${CMAKE_SOURCE_DIR}/include -I${CMAKE_SOURCE_DIR}/ext -I${CMAKE_SOURCE_DIR}/ext/math ${CODELET_SRC} -o TraceCodelets.gp
   OUTPUT TraceCodelets.gp
   WORKING_DIRECTORY ${CMAKE_BUILD_DIR}
 )
