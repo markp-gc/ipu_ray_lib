@@ -9,15 +9,6 @@ This project is a redesign of an experimental ray/path tracer for Graphcore Inte
 
 The old version is [here](https://github.com/markp-gc/ipu_path_trace). This new version is completely re-architected with the aim of making it more flexible and easier to extend. There has also been some attempt at making it interoperable with Embree (which is used to build an initial BVH).
 
-## Try immediately in a free notebook
-
-The simplest way to experiment with the renderer is by launching a pre-built docker container on a cloud service.
-Paperspace, for example, provides free IPU-POD4 machines. Click this link and follow the instructions in the README.ipynb notebook:
-
-[<img src="images/gradient-badge.svg" width="200"/>](https://console.paperspace.com/github/markp-gc/gradient_poplar_raytracer?container=mpupilli/poplar_paperspace&machine=Free-IPU-POD4&file=README.ipynb)
-
-(Using this method you do not have to worry about installing the right apt packages or configuring the IPU-POD.)
-
 ## New software architecture
 
 Key improvements of this implementation over the original are:
@@ -42,7 +33,7 @@ Key improvements of this implementation over the original are:
   - The other uses identical code to the IPU kernels but runs multi-threaded on CPU.
   - The CPU implementations aid debugging of IPU code. E.g. it is easier to step through a single threaded program on CPU and we can compare IPU's ray-tracing AOVs to Embree/CPU references.
 
-## Setting up your own machine:
+## Setting up your IPU machine:
 
 If you have access to your own IPU machine you can use this [Dockerfile](https://github.com/markp-gc/docker-files/blob/main/graphcore/poplar_dev/Dockerfile) on a cloud service of your choice or even manually install the apt dependencies listed there in a bare metal system. In either case you will need to follow instructions for your cloud/system to set it up yourself (e.g. install the Poplar SDK and configure VIPU to see at least 4 IPUs.)
 
